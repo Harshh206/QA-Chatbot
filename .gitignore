@@ -1,0 +1,41 @@
+# ==========================================
+# Python & Environment
+# ==========================================
+.venv/
+venv/
+ENV/
+env/
+.env
+*.env
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
+
+# ==========================================
+# Vector Database & Storage (ChromaDB)
+# ==========================================
+# Blocks the local ChromaDB persistence directory
+chroma/
+*.db
+*.sqlite3
+.chroma/
+
+# ==========================================
+# LLM / Ollama / Local Models
+# ==========================================
+# Prevents large model weights/caches from being tracked
+.ollama/
+models/
+*.bin
+*.gguf
+*.onnx
+
+# ==========================================
+# Project Logs & IDEs
+# ==========================================
+.vscode/
+.idea/
+*.log
+.DS_Store
+
+# add
