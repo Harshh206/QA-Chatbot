@@ -15,7 +15,7 @@ __pycache__/
 # Vector Database & Storage (ChromaDB)
 # ==========================================
 # Blocks the local ChromaDB persistence directory
-chroma/
+chroma_db/
 *.db
 *.sqlite3
 .chroma/

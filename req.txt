@@ -6,3 +6,11 @@ PyMuPDF
 pypdf 
 pytest 
 sentence-transformers
+chromadb
+langchain-chroma
+markitdown
+
+docx2txt 
+unstructured 
+openpyxl 
+jq
