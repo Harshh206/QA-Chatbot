@@ -1,5 +1,5 @@
 from langchain_core.documents import Document
-from typing import List, Optional
+from typing import List
 import re
 import logging
 

@@ -13,15 +13,17 @@ class EmbeddingManager:
         self,
         model_name: str = config.embedding_model,
         base_url: str = config.ollama_base_url,
+        dimensions: int = config.embedding_dimension,
     ):
         """Initialize Ollama embedding manager
 
         Args:
-            model_name: Name of the Ollama embedding model (e.g., 'nomic-embed-text', 'mxbai-embed-large')
+            model_name: Name of the Ollama embedding model.
             base_url: Ollama server URL (default: http://localhost:11434)
         """
         self.model_name = model_name or config.embedding_model
         self.base_url = base_url
+        self.dimensions = dimensions
         self.embeddings = self._initialize_embeddings()
 
     def _initialize_embeddings(self):
@@ -30,6 +32,7 @@ class EmbeddingManager:
             return OllamaEmbeddings(
                 model=self.model_name,
                 base_url=self.base_url,
+                dimensions=self.dimensions,
             )
         except Exception as e:
             logger.error(f"Failed to initialize Ollama embeddings: {e}")

@@ -1,5 +1,6 @@
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
+
 from typing import List, Optional, Dict, Any
 import logging
 import uuid
@@ -14,7 +15,7 @@ class ChromaVectorStore:
         self,
         embedding_manager,
         persist_directory: str = "./chroma_db",
-        collection_name: str = "documents",
+        collection_name: str = "my_rag_collection",
     ):
 
         self.embedding_manager = embedding_manager
@@ -25,18 +26,20 @@ class ChromaVectorStore:
             collection_name=collection_name,
             embedding_function=embedding_manager.embeddings,
             persist_directory=persist_directory,
+            collection_metadata={"hnsw:space": "cosine"},
         )
 
-    
     def add_texts(
-        self, texts: List[str], metadatas: Optional[List[Dict]] = None
+        self, texts: List[str], metadatas: Optional[List[Dict]] = None, ids: Optional[List[str]] = None
     ) -> List[str]:
         """Add texts directly to the vector store"""
         if metadatas is None:
             metadatas = [{} for _ in texts]
+        if ids is None:
+            ids = [str(uuid.uuid4()) for _ in texts]
 
         try:
-            ids = self.vector_store.add_texts(texts, metadatas=metadatas)
+            ids = self.vector_store.add_texts(texts, metadatas=metadatas, ids=ids)
             return ids
         except Exception as e:
             logger.error(f"Error adding texts to ChromaDB: {e}")
@@ -45,13 +48,21 @@ class ChromaVectorStore:
     def add_documents(self, documents: List[Document]) -> List[str]:
         """Add Document objects to the vector store"""
         try:
-            ids = self.vector_store.add_documents(documents)
+            ids = []
+            for document in documents:
+                document_id = document.metadata.get("id")
+                if not document_id:
+                    document_id = str(uuid.uuid4())
+                    document.metadata["id"] = document_id
+                ids.append(document_id)
+
+            ids = self.vector_store.add_documents(documents, ids=ids)
             return ids
         except Exception as e:
             logger.error(f"Error adding documents to ChromaDB: {e}")
             raise
 
-    def search(self, query: str, k: int = 4, **kwargs) -> List[Document]:
+    def search(self, query: str, k: int = 5, **kwargs) -> List[Document]:
         """Search for similar documents"""
         try:
             return self.vector_store.similarity_search(query, k=k, **kwargs)
@@ -59,7 +70,7 @@ class ChromaVectorStore:
             logger.error(f"Error searching ChromaDB: {e}")
             return []
 
-    def search_with_score(self, query: str, k: int = 4, **kwargs) -> List[tuple]:
+    def search_with_score(self, query: str, k: int = 5, **kwargs) -> List[tuple]:
         """Search with similarity scores"""
         try:
             return self.vector_store.similarity_search_with_score(query, k=k, **kwargs)

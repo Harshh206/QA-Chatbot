@@ -5,7 +5,7 @@ from langchain_text_splitters import (
     CharacterTextSplitter,
 )
 from langchain_core.documents import Document
-from typing import List, Optional
+from typing import List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class ChunkStrategy:
     """Base chunking strategy"""
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 100):
+    def __init__(self, chunk_size: int, chunk_overlap: int):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -77,7 +77,7 @@ class MarkdownChunker(ChunkStrategy):
 class HybridChunker(ChunkStrategy):
     """Hybrid approach: use markdown if available, else recursive"""
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 100):
+    def __init__(self, chunk_size: int, chunk_overlap: int):
         super().__init__(chunk_size, chunk_overlap)
         self.md_chunker = MarkdownChunker(chunk_size, chunk_overlap)
         self.recursive_chunker = RecursiveChunker(chunk_size, chunk_overlap)

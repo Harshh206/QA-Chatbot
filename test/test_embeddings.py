@@ -11,7 +11,8 @@ def test_embeddings():
 
     # Initialize embedding manager
     manager = EmbeddingManager(
-        model_name=config.embedding_model, base_url=config.ollama_base_url
+        model_name=config.embedding_model, base_url=config.ollama_base_url,
+        dimensions=config.embedding_dimension
     )
 
     # Test connection

@@ -8,7 +8,7 @@ from langchain_community.document_loaders import (
 )
 from langchain_core.documents import Document
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List
 import logging
 
 logger = logging.getLogger(__name__)
