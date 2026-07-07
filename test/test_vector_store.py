@@ -65,10 +65,10 @@ def test_vector_store():
         print(f"   📝 {doc.page_content[:50]}...")
         print(f"   📊 Score: {score:.4f}")
 
-    # 5. Clean up test documents
-    print("\n5. Cleaning up test documents...")
-    vector_store.delete_collection()
-    print("   ✅ Test collection deleted")
+    # # 5. Clean up test documents
+    # print("\n5. Cleaning up test documents...")
+    # vector_store.delete_collection()
+    # print("   ✅ Test collection deleted")
 
 
 if __name__ == "__main__":

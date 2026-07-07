@@ -67,7 +67,7 @@ def test_pipeline():
             f"   💾 Stored in ChromaDB: {result['collection_stats']['document_count']}"
         )
         print(
-            f"   🔢 Embedding dimension: {result.get('embedding_dimension', 'unknown')}"
+            f"   🔢 Embedding dimension: {dim or 'unknown'}"
         )
         print(f"   🆔 Sample IDs: {', '.join(result['stored_ids'][:3])}")
     else:

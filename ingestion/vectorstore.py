@@ -26,7 +26,7 @@ class ChromaVectorStore:
             collection_name=collection_name,
             embedding_function=embedding_manager.embeddings,
             persist_directory=persist_directory,
-            collection_metadata={"hnsw:space": "cosine"},
+            collection_metadata={"hnsw:space": "cosine"}, #mesure similarity using cosine distance
         )
 
     def add_texts(
@@ -78,13 +78,6 @@ class ChromaVectorStore:
             logger.error(f"Error searching ChromaDB with scores: {e}")
             return []
 
-    def delete_collection(self):
-        """Delete the entire collection"""
-        try:
-            self.vector_store.delete_collection()
-            logger.info(f"Deleted collection {self.collection_name}")
-        except Exception as e:
-            logger.error(f"Error deleting collection: {e}")
 
     def get_collection_stats(self) -> Dict[str, Any]:
         """Get collection statistics"""
