@@ -39,11 +39,13 @@ def test_performance():
 
     if result["status"] == "success":
         print(f"✅ Pipeline completed in {total_time:.2f} seconds")
-        print(f"📄 Documents processed: {result['documents_loaded']}")
+        print(
+            f"📄 Documents processed: {result['documents_loaded']}"
+        )
         print(f"✂️  Chunks created: {result['chunks_created']}")
         print(f"⚡ Speed: {result['chunks_created']/total_time:.2f} chunks/second")
         print(f"💾 Documents in VDB: {result['collection_stats']['document_count']}")
-        print(f"🔢 Embedding dimension: {result.get('embedding_dimension', 'unknown')}")
+        print(f"🔢 Embedding dimension: {config.embedding_dimension}")
     else:
         print(f"❌ Pipeline failed: {result.get('reason')}")
 

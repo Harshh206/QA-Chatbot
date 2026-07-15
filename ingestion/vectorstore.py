@@ -26,7 +26,6 @@ class ChromaVectorStore:
             collection_name=collection_name,
             embedding_function=embedding_manager.embeddings,
             persist_directory=persist_directory,
-            collection_metadata={"hnsw:space": "cosine"}, #mesure similarity using cosine distance
         )
 
     def add_texts(
@@ -62,7 +61,7 @@ class ChromaVectorStore:
             logger.error(f"Error adding documents to ChromaDB: {e}")
             raise
 
-    def search(self, query: str, k: int = 5, **kwargs) -> List[Document]:
+    def search(self, query: str, k: int, **kwargs) -> List[Document]:
         """Search for similar documents"""
         try:
             return self.vector_store.similarity_search(query, k=k, **kwargs)
@@ -70,7 +69,7 @@ class ChromaVectorStore:
             logger.error(f"Error searching ChromaDB: {e}")
             return []
 
-    def search_with_score(self, query: str, k: int = 5, **kwargs) -> List[tuple]:
+    def search_with_score(self, query: str, k: int, **kwargs) -> List[tuple]:
         """Search with similarity scores"""
         try:
             return self.vector_store.similarity_search_with_score(query, k=k, **kwargs)

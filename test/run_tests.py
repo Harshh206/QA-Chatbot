@@ -26,9 +26,9 @@ def run_all_tests():
         )
 
     run_test("test.test_embeddings")
-    run_test("test.test_pipeline")
+    run_test("test.test_vectorstore")
     run_test("test.test_retrieval")
-    run_test("test.test_markdown")
+    run_test("test.test_pipeline")
     run_test("test.test_performance")
 
 

@@ -10,6 +10,7 @@ import logging
 from typing import List, Optional
 from pathlib import Path
 
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class IngestionPipeline:
         try:
             # 1. Load documents
             logger.info("Step 1: Loading documents")
+       
             if input_path:
                 documents = self.loader.load_single_file(Path(input_path))
             else:
@@ -74,10 +76,6 @@ class IngestionPipeline:
 
             # 6. Add embeddings
             logger.info("Step 6: Generating embeddings")
-            chunks = self.embedding_manager.embed_chunks(chunks)
-
-            # 7. Store in vector DB
-            logger.info("Step 7: Storing in ChromaDB")
             ids = self.vector_store.add_documents(chunks)
             logger.info(f"Stored {len(ids)} chunks in vector DB")
 
