@@ -1,6 +1,6 @@
 from langchain_ollama import OllamaEmbeddings
 from typing import List, Optional
-from ..config import config
+from config import config
 import logging
 
 logger = logging.getLogger(__name__)

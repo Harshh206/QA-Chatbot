@@ -4,7 +4,7 @@ from .processors.cleaner import TextCleaner
 from .processors.metadata_extract import MetadataExtractor
 from .embedding import EmbeddingManager
 from .vectorstore import ChromaVectorStore
-from ..config import config
+from config import config
 from . import chunker
 import logging
 from typing import List, Optional
@@ -41,6 +41,7 @@ class IngestionPipeline:
     def process(self, input_path: Optional[str] = None) -> dict:
         """Run the complete ingestion pipeline"""
         logger.info("Starting ingestion pipeline...")
+        print("=" * 60)
 
         try:
             # 1. Load documents

@@ -77,6 +77,13 @@ class ChromaVectorStore:
             logger.error(f"Error searching ChromaDB with scores: {e}")
             return []
 
+    # def delete_collection(self):
+    #     """Delete the entire collection"""
+    #     try:
+    #         self.vector_store.delete_collection()
+    #         logger.info(f"Deleted collection {self.collection_name}")
+    #     except Exception as e:
+    #         logger.error(f"Error deleting collection: {e}")
 
     def get_collection_stats(self) -> Dict[str, Any]:
         """Get collection statistics"""
