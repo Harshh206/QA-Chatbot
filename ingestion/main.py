@@ -1,5 +1,5 @@
 from .pipeline import IngestionPipeline
-from .config import config
+from ..config import config
 import argparse
 import logging
 import json

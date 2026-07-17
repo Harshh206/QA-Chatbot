@@ -1,5 +1,5 @@
 from ingestion.embedding import EmbeddingManager
-from ingestion.config import config
+from config import config
 import time
 
 

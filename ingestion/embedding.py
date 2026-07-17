@@ -1,6 +1,6 @@
 from langchain_ollama import OllamaEmbeddings
 from typing import List, Optional
-from .config import config
+from ..config import config
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,12 +15,7 @@ class EmbeddingManager:
         base_url: str = config.ollama_base_url,
         dimensions: int = config.embedding_dimension,
     ):
-        """Initialize Ollama embedding manager
-
-        Args:
-            model_name: Name of the Ollama embedding model.
-            base_url: Ollama server URL (default: http://localhost:11434)
-        """
+      
         self.model_name = model_name or config.embedding_model
         self.base_url = base_url
         self.dimensions = dimensions

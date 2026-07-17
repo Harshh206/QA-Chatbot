@@ -1,7 +1,7 @@
 from ingestion.embedding import EmbeddingManager
 from ingestion.vectorstore import ChromaVectorStore
 from langchain_core.documents import Document
-from ingestion.config import config
+from config import config
 
 def test_vector_store():
     """Test vector store operations"""

@@ -1,5 +1,5 @@
 from ingestion.pipeline import IngestionPipeline
-from ingestion.config import config
+from config import config
 pipeline = IngestionPipeline(config)
 
 
