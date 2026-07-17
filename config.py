@@ -6,8 +6,10 @@ from typing import Optional
 @dataclass
 class PipelineConfig:
     # Chunking settings
-    chunk_size: int = 1024
-    chunk_overlap: int = 256
+    chunk_size: int = 640
+    chunk_overlap: int = 96
+
+    llm: str = "llama3:8b"
 
     # Embedding settings
     embedding_model: str = "qwen3-embedding:0.6b"
