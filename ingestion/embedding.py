@@ -12,7 +12,7 @@ class EmbeddingManager:
     def __init__(
         self,
         model_name: str = config.embedding_model,
-        base_url: str = config.ollama_base_url,
+        base_url: str = config.base_url,
         dimensions: int = config.embedding_dimension,
     ):
       

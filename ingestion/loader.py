@@ -4,8 +4,8 @@ from langchain_community.document_loaders import (
     UnstructuredMarkdownLoader,
     TextLoader,
     CSVLoader,
-    JSONLoader,
-)
+    JSONLoader, 
+    UnstructuredFileLoader)
 from langchain_core.documents import Document
 from pathlib import Path
 from typing import List
@@ -25,6 +25,7 @@ class DocumentLoader:
         ".txt": TextLoader,
         ".csv": CSVLoader,
         ".json": JSONLoader,
+        ".mdx": UnstructuredFileLoader,
     }
 
     def __init__(self, input_dir: str):

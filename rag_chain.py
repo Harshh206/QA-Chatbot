@@ -32,8 +32,8 @@ class RAGChain:
         # Use provided LLM or create default
         if llm_manager is None:
             self.llm = LLMManager(
-                model_name=getattr(config, "llm", "llama3:8b"),
-                base_url=config.ollama_base_url,
+                model_name=config.llm,
+                base_url=config.base_url,
             )
         else:
             self.llm = llm_manager
@@ -142,8 +142,10 @@ Answer based on the context above:"""
             # Stream generation
             full_response = ""
             for chunk in self.llm.stream_generate(prompt, system_prompt):
-                full_response += chunk
-                yield {"type": "chunk", "content": chunk, "partial": full_response}
+                # Handle both string and list chunks
+                chunk_str = chunk if isinstance(chunk, str) else str(chunk)
+                full_response += chunk_str
+                yield {"type": "chunk", "content": chunk_str, "partial": full_response}
 
             # Final completion
             yield {"type": "complete", "content": full_response, "done": True}
@@ -211,7 +213,7 @@ def create_rag_chain(
 
     # Create LLM
     llm = LLMManager(
-        model_name=getattr(config, "llm", "llama3:8b"), base_url=config.ollama_base_url
+        model_name=getattr(config, "llm", "llama3:8b"), base_url=config.base_url
     )
 
     # Create RAG chain

@@ -1,7 +1,6 @@
-import sys
 import logging
 from .rag_chain import RAGChain, create_rag_chain
-from .config import config
+#from config import config
 from typing import Optional
 
 logger = logging.getLogger(__name__)

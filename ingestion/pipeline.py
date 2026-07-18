@@ -107,7 +107,7 @@ class IngestionPipeline:
         """
         return self.process(input_path=file_path)
 
-    def process_directory(self, dir_path: Optional[str] = None) -> dict:
+    def process_directory(self, dir_path: Optional[str]) -> dict:
         """
         Process all files in a directory
         
@@ -118,7 +118,7 @@ class IngestionPipeline:
             Dictionary with processing results
         """
         if dir_path:
-            self.loader.input_dir = dir_path
+            self.loader.input_dir = Path(dir_path)
         return self.process()
 
 

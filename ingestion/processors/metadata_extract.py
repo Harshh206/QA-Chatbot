@@ -15,7 +15,7 @@ class MetadataExtractor:
     def __init__(self):
         self.default_metadata = {
             "ingestion_timestamp": datetime.now().isoformat(),
-            "pipeline_version": "1.0.0",
+            #"pipeline_version": "1.0.0",
         }
 
     def extract_metadata(self, document: Document) -> Document:

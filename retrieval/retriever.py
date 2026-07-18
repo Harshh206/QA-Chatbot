@@ -124,6 +124,10 @@ class HybridRetrieval(RetrievalStrategy):
 
     def _bm25_search(self, query: str, k: int) -> List[Document]:
         """Perform BM25 search"""
+        if not self.bm25_available or self._bm25_class is None:
+            logger.warning("BM25 not available, using keyword search instead")
+            return self._keyword_search(query, k)
+        
         try:
             # Get all documents from collection
             all_docs = self.vector_store.vector_store.get()

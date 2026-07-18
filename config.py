@@ -1,7 +1,4 @@
-import os
 from dataclasses import dataclass
-from typing import Optional
-
 
 @dataclass
 class PipelineConfig:
@@ -9,11 +6,14 @@ class PipelineConfig:
     chunk_size: int = 640
     chunk_overlap: int = 96
 
+    # LLM settings
     llm: str = "llama3:8b"
+    temperature: float = 0.9
+    base_url: str = "http://localhost:11434"
+
 
     # Embedding settings
     embedding_model: str = "qwen3-embedding:0.6b"
-    ollama_base_url: str = "http://localhost:11434"
     embedding_dimension: int = 768
     # Vector DB settings
     chroma_persist_dir: str = "./chroma_db"

@@ -1,6 +1,7 @@
 from langchain_ollama import ChatOllama
 from typing import Optional, List, Dict, Any
 import logging
+from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -10,9 +11,9 @@ class LLMManager:
 
     def __init__(
         self,
-        model_name: str = "llama3:8b",
-        base_url: str = "http://localhost:11434",
-        temperature: float = 0.7,
+        model_name: str = config.llm,
+        base_url: str = config.base_url,
+        temperature: float = config.temperature,
         **kwargs,
     ):
         """
@@ -53,7 +54,14 @@ class LLMManager:
 
         try:
             response = self.llm.invoke(messages)
-            return response.content
+            # Handle both string and list responses from ChatOllama
+            if isinstance(response.content, str):
+                return response.content
+            elif isinstance(response.content, list):
+                # Join list content into a single string
+                return "".join(str(item) for item in response.content)
+            else:
+                return str(response.content)
         except Exception as e:
             logger.error(f"Error generating response: {e}")
             return f"Error: {str(e)}"
@@ -73,12 +81,8 @@ class LLMManager:
 If you cannot answer from the context, say "I don't have enough information to answer this."
 Be concise and accurate."""
 
-        prompt = f"""Context:
-{context}
-
-Question: {query}
-
-Answer based on the context above:"""
+        prompt = f"""Context:{context}, Question: {query}
+                    Answer based on the context above:"""
 
         return self.generate(prompt, system_prompt)
 
