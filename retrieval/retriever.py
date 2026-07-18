@@ -5,7 +5,6 @@ import logging
 from ingestion.vectorstore import ChromaVectorStore
 from ingestion.embedding import EmbeddingManager
 import asyncio
-from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +83,12 @@ class HybridRetrieval(RetrievalStrategy):
         super().__init__(vector_store, embedding_manager)
         # Try to import BM25 for better keyword search
         try:
+            from rank_bm25 import BM25Okapi
+
+            self._bm25_class = BM25Okapi
             self.bm25_available = True
         except ImportError:
+            self._bm25_class = None
             self.bm25_available = False
             logger.warning("rank_bm25 not installed. Using simple keyword matching.")
 
@@ -131,7 +134,7 @@ class HybridRetrieval(RetrievalStrategy):
 
             # Tokenize documents and query
             tokenized_docs = [doc.split() for doc in documents]
-            bm25 = BM25Okapi(tokenized_docs)
+            bm25 = self._bm25_class(tokenized_docs)
 
             # Get scores
             tokenized_query = query.split()
@@ -143,14 +146,11 @@ class HybridRetrieval(RetrievalStrategy):
             )[:k]
 
             results = []
+            metadatas = all_docs.get("metadatas", [])
             for idx in top_indices:
                 doc = Document(
                     page_content=documents[idx],
-                    metadata=(
-                        self.vector_store.vector_store.get()["metadatas"][idx]
-                        if "metadatas" in all_docs
-                        else {}
-                    ),
+                    metadata=metadatas[idx] if idx < len(metadatas) else {},
                 )
                 results.append(doc)
 

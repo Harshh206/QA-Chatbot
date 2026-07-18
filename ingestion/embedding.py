@@ -92,7 +92,7 @@ class EmbeddingManager:
 
         # Add embeddings to chunks
         for chunk, embedding in zip(chunks, embeddings):
-           #
+            chunk.metadata["embedding"] = embedding
             chunk.metadata["embedding_model"] = self.model_name
 
         logger.info(f"Added embeddings to {len(chunks)} chunks")

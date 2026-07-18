@@ -160,7 +160,7 @@ Rating: """
             return documents
 
 
-class RRFReReranker(Reranker):
+class RRFReranker(Reranker):
     """Reciprocal Rank Fusion reranker for combining multiple result sets"""
 
     def __init__(self, **kwargs):
@@ -276,7 +276,7 @@ def get_reranker(reranker_type: str = "cross_encoder", **kwargs) -> Reranker:
     rerankers = {
         "cross_encoder": CrossEncoderReranker,
         "llm": LLMReranker,
-        "rrf": RRFReReranker,
+        "rrf": RRFReranker,
         "ensemble": EnsembleReranker,
     }
 

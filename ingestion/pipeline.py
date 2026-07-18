@@ -96,11 +96,29 @@ class IngestionPipeline:
             return {"status": "failed", "reason": str(e)}
 
     def process_single_file(self, file_path: str) -> dict:
-        """Process a single file"""
-        return self.process(file_path)
+        """
+        Process a single file
+        
+        Args:
+            file_path: Path to the file to process
+            
+        Returns:
+            Dictionary with processing results
+        """
+        return self.process(input_path=file_path)
 
-    def process_directory(self) -> dict:
-        """Process all files in the input directory"""
+    def process_directory(self, dir_path: Optional[str] = None) -> dict:
+        """
+        Process all files in a directory
+        
+        Args:
+            dir_path: Optional directory path (uses config.input_dir if not provided)
+            
+        Returns:
+            Dictionary with processing results
+        """
+        if dir_path:
+            self.loader.input_dir = dir_path
         return self.process()
 
 
