@@ -63,7 +63,7 @@ def run_chat(
     print("\n" + "=" * 60)
     print("🤖 RAG Chat Assistant")
     print("=" * 60)
-    print(f"\nUsing: {getattr(config, 'llm', 'llama3:8b')}")
+    print(f"\nUsing: {getattr(config, 'chat_model')}")
     print(f"Top-K: {top_k}")
     print(f"Score Threshold: {score_threshold}\n")
     print("Commands:")

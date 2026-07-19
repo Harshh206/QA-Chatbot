@@ -8,7 +8,7 @@ class PipelineConfig:
 
     # LLM settings
     chat_model: str = "llama3:8b"
-    temperature: float = 0.9
+    temperature: float = 0.8
     base_url: str = "http://localhost:11434"
 
 
@@ -19,6 +19,7 @@ class PipelineConfig:
     # Reranker settings
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     threshold: float  = 0.70
+
 
     # Vector DB settings
     chroma_persist_dir: str = "./chroma_db"
