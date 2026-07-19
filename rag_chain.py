@@ -127,6 +127,11 @@ class RAGChain:
             # Format context
             context = self._format_context(documents)
 
+            # Create prompt
+            system_prompt = """You are a helpful assistant. Answer questions based ONLY on the provided context.
+If you cannot answer from the context, say "I don't have enough information to answer this."
+Be concise and accurate."""
+
             prompt = f"""Context:
 {context}
 
@@ -136,7 +141,7 @@ Answer based on the context above:"""
 
             # Stream generation
             full_response = ""
-            for chunk in self.llm.stream_generate(prompt):
+            for chunk in self.llm.stream_generate(prompt, system_prompt):
                 # Handle both string and list chunks
                 chunk_str = chunk if isinstance(chunk, str) else str(chunk)
                 full_response += chunk_str
@@ -178,8 +183,8 @@ Answer based on the context above:"""
 
 def create_rag_chain(
     config,
-    retriever_strategy: str = "hybrid",
-    reranker_type: Optional[str] = "cross_encoder",
+    retriever_strategy: str = "simple",
+    reranker_type: Optional[str] = None,
     k: int = 3,
     **kwargs,
 ) -> RAGChain:

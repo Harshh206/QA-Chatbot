@@ -1,88 +1,291 @@
-import logging
-from typing import Any, List, Optional
-
 from langchain_core.documents import Document
+from typing import List, Optional, Dict, Any, Tuple
+import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
-class CrossEncoderReranker:
-    """Rerank retrieved documents with a cross-encoder relevance model."""
+class Reranker:
+    """Base class for document reranking"""
+
+    def rerank(self, query: str, documents: List[Document]) -> List[Document]:
+        """Rerank documents based on query"""
+        raise NotImplementedError
+
+
+class CrossEncoderReranker(Reranker):
+    """Reranker using cross-encoder model"""
 
     def __init__(
-        self,
-        model_name: str = "qllama/bge-reranker-v2-m3",
-        batch_size: int = 16,
-        max_length: Optional[int] = None,
-        **kwargs: Any,
+        self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2", **kwargs
     ):
-        self.model_name = model_name
-        self.batch_size = batch_size
-        self.max_length = max_length
-        self.model = None
+        """
+        Initialize cross-encoder reranker
 
+        Args:
+            model_name: Name of the cross-encoder model
+            **kwargs: Additional arguments (ignored)
+        """
+        self.model_name = model_name
+        self.model = None
+        self._initialize_model()
+
+    def _initialize_model(self):
+        """Initialize the cross-encoder model"""
         try:
             from sentence_transformers import CrossEncoder
 
-            model_kwargs = dict(kwargs)
-            if max_length is not None:
-                model_kwargs["max_length"] = max_length
-            self.model = CrossEncoder(model_name, **model_kwargs)
-            logger.info(f"Initialized cross-encoder reranker: {model_name}")
-        except Exception as exc:
-            logger.error(
-                f"Could not initialize cross-encoder reranker '{model_name}': {exc}"
+            self.model = CrossEncoder(self.model_name)
+            logger.info(f"Loaded cross-encoder model: {self.model_name}")
+        except ImportError:
+            logger.warning(
+                "sentence-transformers not installed. Using fallback reranking."
             )
+            self.model = None
+        except Exception as e:
+            logger.error(f"Error loading cross-encoder model: {e}")
+            self.model = None
 
-    def rerank(
-        self,
-        query: str,
-        documents: List[Document],
-        k: Optional[int] = None,
-        **kwargs: Any,
-    ) -> List[Document]:
+    def rerank(self, query: str, documents: List[Document]) -> List[Document]:
+        """Rerank documents using cross-encoder"""
         if not documents:
             return []
 
         if self.model is None:
-            logger.warning("Cross-encoder unavailable; returning retrieval order")
-            return documents[:k] if k else documents
-
-        pairs = [(query, document.page_content) for document in documents]
+            logger.warning(
+                "Cross-encoder model not available, returning original order"
+            )
+            return documents
 
         try:
-            scores = self.model.predict(
-                pairs,
-                batch_size=kwargs.get("batch_size", self.batch_size),
-                show_progress_bar=kwargs.get("show_progress_bar", False),
+            # Prepare pairs for cross-encoder
+            pairs = [[query, doc.page_content] for doc in documents]
+
+            # Get scores
+            scores = self.model.predict(pairs)
+
+            # Sort documents by score
+            scored_docs = list(zip(documents, scores))
+            scored_docs.sort(key=lambda x: x[1], reverse=True)
+
+            return [doc for doc, _ in scored_docs]
+        except Exception as e:
+            logger.error(f"Error in cross-encoder reranking: {e}")
+            return documents
+
+
+class LLMReranker(Reranker):
+    """Reranker using LLM"""
+
+    def __init__(self, llm=None, prompt_template: Optional[str] = None, **kwargs):
+        """
+        Initialize LLM reranker
+
+        Args:
+            llm: LLM instance (required)
+            prompt_template: Custom prompt template
+            **kwargs: Additional arguments (ignored)
+        """
+        self.llm = llm
+        self.prompt_template = prompt_template or self._default_prompt()
+
+        if self.llm is None:
+            logger.warning(
+                "No LLM provided for LLMReranker. Will return original order."
             )
-        except Exception as exc:
-            logger.error(f"Cross-encoder reranking failed: {exc}")
-            return documents[:k] if k else documents
 
-        scored_documents = []
-        for document, score in zip(documents, scores):
-            metadata = dict(document.metadata or {})
-            metadata["cross_encoder_score"] = float(score)
-            metadata["reranker_model"] = self.model_name
-            metadata["retrieval_stage"] = "cross_encoder_reranked"
-            scored_documents.append(
-                Document(page_content=document.page_content, metadata=metadata)
+    def _default_prompt(self) -> str:
+        return """Rate the relevance of the following document to the query on a scale of 1-10.
+Only respond with the number.
+
+Query: {query}
+Document: {document}
+
+Rating: """
+
+    def rerank(self, query: str, documents: List[Document]) -> List[Document]:
+        """Rerank using LLM"""
+        if not documents:
+            return []
+
+        if self.llm is None:
+            logger.warning("LLM not available for reranking, returning original order")
+            return documents
+
+        try:
+            scored_docs = []
+
+            # Limit documents to avoid excessive API calls
+            max_docs = min(len(documents), 10)
+
+            for i, doc in enumerate(documents[:max_docs]):
+                prompt = self.prompt_template.format(
+                    query=query, document=doc.page_content[:500]  # Truncate for LLM
+                )
+
+                try:
+                    # Get rating from LLM
+                    response = self.llm.invoke(prompt)
+                    rating_text = (
+                        response.content.strip()
+                        if hasattr(response, "content")
+                        else str(response).strip()
+                    )
+
+                    # Extract number from response
+                    import re
+
+                    numbers = re.findall(r"\d+", rating_text)
+                    rating = float(numbers[0]) if numbers else 5.0
+                    rating = min(max(rating, 1), 10)  # Clamp between 1-10
+
+                    scored_docs.append((doc, rating))
+                except Exception as e:
+                    logger.warning(f"Error scoring document {i}: {e}")
+                    scored_docs.append((doc, 5.0))  # Default middle score
+
+            # Sort by rating
+            scored_docs.sort(key=lambda x: x[1], reverse=True)
+
+            # Add remaining documents (not scored) at the end
+            if len(documents) > max_docs:
+                unscored = documents[max_docs:]
+                scored_docs.extend([(doc, 0) for doc in unscored])
+
+            return [doc for doc, _ in scored_docs]
+
+        except Exception as e:
+            logger.error(f"Error in LLM reranking: {e}")
+            return documents
+
+
+class RRFReranker(Reranker):
+    """Reciprocal Rank Fusion reranker for combining multiple result sets"""
+
+    def __init__(self, **kwargs):
+        """
+        Initialize RRF reranker
+
+        Args:
+            **kwargs: Additional arguments (ignored)
+        """
+        pass
+
+    def rerank(self, query: str, documents: List[Document]) -> List[Document]:
+        """
+        RRF reranking (assumes documents already have scores in metadata)
+
+        Args:
+            query: Search query (unused for RRF)
+            documents: List of documents with scores in metadata
+        """
+        if not documents:
+            return []
+
+        # Collect scores from metadata
+        scored_docs = []
+        for i, doc in enumerate(documents):
+            # Check for various score field names
+            score = (
+                doc.metadata.get("rrf_score")
+                or doc.metadata.get("score")
+                or doc.metadata.get("relevance_score")
+                or doc.metadata.get("similarity_score")
             )
 
-        scored_documents.sort(
-            key=lambda document: document.metadata.get("cross_encoder_score", 0.0),
-            reverse=True,
-        )
-        return scored_documents[:k] if k else scored_documents
+            if score is None:
+                # If no score, use reciprocal rank based on position
+                score = 1 / (i + 1)
+
+            scored_docs.append((doc, float(score)))
+
+        # Sort by score descending
+        scored_docs.sort(key=lambda x: x[1], reverse=True)
+        return [doc for doc, _ in scored_docs]
 
 
-def create_reranker(reranker_type: Optional[str], **kwargs: Any):
-    if reranker_type is None:
-        return None
+class EnsembleReranker(Reranker):
+    """Ensemble of multiple rerankers"""
 
-    reranker_type = reranker_type.lower()
-    if reranker_type in {"cross_encoder", "cross-encoder", "bge", "bge_reranker"}:
-        return CrossEncoderReranker(**kwargs)
+    def __init__(
+        self, rerankers: List[Reranker], weights: Optional[List[float]] = None, **kwargs
+    ):
+        """
+        Initialize ensemble reranker
 
-    raise ValueError(f"Unsupported reranker type: {reranker_type}")
+        Args:
+            rerankers: List of reranker instances
+            weights: Optional weights for each reranker
+            **kwargs: Additional arguments (ignored)
+        """
+        self.rerankers = rerankers
+        self.weights = weights or [1.0] * len(rerankers)
+
+        # Normalize weights
+        total = sum(self.weights)
+        self.weights = [w / total for w in self.weights]
+
+    def rerank(self, query: str, documents: List[Document]) -> List[Document]:
+        """Rerank using ensemble of rerankers"""
+        if not documents:
+            return []
+
+        if not self.rerankers:
+            return documents
+
+        # Score each document with each reranker
+        scores = {doc: 0.0 for doc in documents}
+
+        for reranker, weight in zip(self.rerankers, self.weights):
+            try:
+                reranked = reranker.rerank(query, documents)
+                # Assign scores based on position
+                for position, doc in enumerate(reranked):
+                    # Position-based score: higher position = higher score
+                    position_score = 1.0 - (position / len(reranked))
+                    scores[doc] += weight * position_score
+            except Exception as e:
+                logger.error(f"Error in reranker {reranker.__class__.__name__}: {e}")
+
+        # Sort by combined score
+        sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        return [doc for doc, _ in sorted_docs]
+
+
+def get_reranker(reranker_type: str = "cross_encoder", **kwargs) -> Reranker:
+    """
+    Factory function for rerankers
+
+    Args:
+        reranker_type: Type of reranker ('cross_encoder', 'llm', 'rrf', 'ensemble')
+        **kwargs: Additional arguments for the reranker
+
+    Returns:
+        Reranker instance
+    """
+    # Filter out kwargs that shouldn't be passed to reranker
+    # Common pipeline kwargs that rerankers don't need
+    filtered_kwargs = {
+        k: v
+        for k, v in kwargs.items()
+        if k
+        not in ["k", "retrieve_k", "strategy", "retriever_strategy", "reranker_type"]
+    }
+
+    rerankers = {
+        "cross_encoder": CrossEncoderReranker,
+        "llm": LLMReranker,
+        "rrf": RRFReranker,
+        "ensemble": EnsembleReranker,
+    }
+
+    reranker_class = rerankers.get(reranker_type.lower(), CrossEncoderReranker)
+
+    # Special handling for ensemble
+    if reranker_type.lower() == "ensemble":
+        # Expect rerankers list in kwargs
+        rerankers_list = kwargs.get("rerankers", [])
+        return EnsembleReranker(rerankers_list, **filtered_kwargs)
+
+    return reranker_class(**filtered_kwargs)

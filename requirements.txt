@@ -6,7 +6,6 @@ PyMuPDF
 pypdf 
 pytest 
 sentence-transformers
-rank_bm25
 chromadb
 langchain-chroma
 markitdown

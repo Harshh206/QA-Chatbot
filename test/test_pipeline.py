@@ -16,11 +16,11 @@ def test_pipeline():
     from ingestion.embedding import EmbeddingManager
 
     test_manager = EmbeddingManager(
-        model_name=config.embedding_model, base_url=config.base_url
+        model_name=config.embedding_model, base_url=config.ollama_base_url
     )
 
     if test_manager.validate_connection():
-        print(f"✅ Connected to Ollama at {config.base_url}")
+        print(f"✅ Connected to Ollama at {config.ollama_base_url}")
         print(f"   Model: {config.embedding_model}")
         dim = test_manager.get_embedding_dimension()
         if dim:

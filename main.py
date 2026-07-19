@@ -22,18 +22,18 @@ def main():
     parser.add_argument(
         "--strategy",
         type=str,
-        default="hybrid",
-        choices=["simple", "mmr", "hybrid"],
+        default="simple",
+        choices=["simple", "mmr", "hybrid", "multi_query"],
         help="Retrieval strategy",
     )
     parser.add_argument(
         "--reranker",
         type=str,
-        default="cross_encoder",
+        default=None,
         choices=["cross_encoder", "llm", "rrf"],
         help="Reranker type",
     )
-    parser.add_argument("--k", type=int, default=5, help="Documents to retrieve")
+    parser.add_argument("--k", type=int, default=3, help="Documents to retrieve")
 
     # Query options
     parser.add_argument("--query", type=str, help="Single query")

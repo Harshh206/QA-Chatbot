@@ -1,277 +1,376 @@
-import logging
-import math
-import re
-from collections import Counter, defaultdict
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-
 from langchain_core.documents import Document
+from langchain_core.retrievers import BaseRetriever
+from typing import List, Dict, Any, Optional, Union, Tuple
+import logging
+from ingestion.vectorstore import ChromaVectorStore
+from ingestion.embedding import EmbeddingManager
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 
-def _tokenize(text: str) -> List[str]:
-    """Small dependency-free tokenizer for BM25."""
-    return re.findall(r"\b\w+\b", text.lower())
+class RetrievalStrategy:
+    """Base retrieval strategy class"""
+
+    def __init__(
+        self, vector_store: ChromaVectorStore, embedding_manager: EmbeddingManager
+    ):
+        self.vector_store = vector_store
+        self.embedding_manager = embedding_manager
+
+    def retrieve(self, query: str, k: int = 5, **kwargs) -> List[Document]:
+        """Retrieve documents based on query"""
+        raise NotImplementedError
 
 
-def _document_key(document: Document) -> str:
-    metadata = document.metadata or {}
-    return str(
-        metadata.get("id")
-        or metadata.get("chunk_id")
-        or metadata.get("content_hash")
-        or f"{metadata.get('source', '')}:{metadata.get('page', '')}:{hash(document.page_content)}"
-    )
+class SimpleRetrieval(RetrievalStrategy):
+    """Simple similarity search retrieval"""
+
+    def retrieve(self, query: str, k: int = 5, **kwargs) -> List[Document]:
+        """Basic similarity search"""
+        return self.vector_store.search(query, k=k, **kwargs)
+
+    def retrieve_with_scores(
+        self, query: str, k: int = 5, **kwargs
+    ) -> List[Tuple[Document, float]]:
+        """Search with similarity scores"""
+        return self.vector_store.search_with_score(query, k=k, **kwargs)
 
 
-def _parent_key(document: Document) -> str:
-    metadata = document.metadata or {}
-    if metadata.get("parent_id"):
-        return str(metadata["parent_id"])
-    if metadata.get("doc_id"):
-        return str(metadata["doc_id"])
-    if metadata.get("source") is not None and metadata.get("page") is not None:
-        return f"{metadata['source']}::page:{metadata['page']}"
-    if metadata.get("source"):
-        return str(metadata["source"])
-    return _document_key(document)
+class MMRRetrieval(RetrievalStrategy):
+    """Maximum Marginal Relevance retrieval for diversity"""
+
+    def retrieve(
+        self, query: str, k: int = 5, lambda_mult: float = 0.5, **kwargs
+    ) -> List[Document]:
+        """
+        MMR retrieval that balances relevance and diversity
+
+        Args:
+            query: Search query
+            k: Number of documents to return
+            lambda_mult: Trade-off parameter (0 = diversity only, 1 = relevance only)
+        """
+        try:
+            # Get more documents than needed for MMR
+            fetch_k = kwargs.get("fetch_k", k * 2)
+
+            # Use Chroma's MMR search directly
+            # Chroma's max_marginal_relevance_search is available via the vector store
+            results = self.vector_store.vector_store.max_marginal_relevance_search(
+                query=query,
+                k=k,
+                fetch_k=fetch_k,
+                lambda_mult=lambda_mult,
+                **{k: v for k, v in kwargs.items() if k != "fetch_k"},
+            )
+            return results
+        except AttributeError:
+            # Fallback: Chroma might not have MMR directly, use similarity search
+            logger.warning("MMR not available, falling back to similarity search")
+            return self.vector_store.search(query, k=k)
+        except Exception as e:
+            logger.error(f"Error in MMR retrieval: {e}")
+            return self.vector_store.search(query, k=k)
 
 
-def _min_max(values: Dict[str, float]) -> Dict[str, float]:
-    if not values:
-        return {}
-    low = min(values.values())
-    high = max(values.values())
-    if math.isclose(low, high):
-        return {key: 1.0 for key in values}
-    return {key: (value - low) / (high - low) for key, value in values.items()}
+class HybridRetrieval(RetrievalStrategy):
+    """Hybrid retrieval combining semantic and keyword search"""
+
+    def __init__(
+        self, vector_store: ChromaVectorStore, embedding_manager: EmbeddingManager
+    ):
+        super().__init__(vector_store, embedding_manager)
+        # Try to import BM25 for better keyword search
+        try:
+            from rank_bm25 import BM25Okapi
+
+            self._bm25_class = BM25Okapi
+            self.bm25_available = True
+        except ImportError:
+            self._bm25_class = None
+            self.bm25_available = False
+            logger.warning("rank_bm25 not installed. Using simple keyword matching.")
+
+    def retrieve(
+        self, query: str, k: int = 5, alpha: float = 0.5, **kwargs
+    ) -> List[Document]:
+        """
+        Hybrid search with keyword and semantic matching
+
+        Args:
+            query: Search query
+            k: Number of documents to return
+            alpha: Weight between keyword (0) and semantic (1) search
+        """
+        try:
+            # Get semantic search results
+            semantic_results = self.vector_store.search(query, k=k * 2, **kwargs)
+
+            # Get keyword-based results using BM25 if available
+            if self.bm25_available:
+                keyword_results = self._bm25_search(query, k * 2)
+            else:
+                keyword_results = self._keyword_search(query, k * 2)
+
+            # Combine and rerank results
+            combined = self._combine_results(
+                semantic_results, keyword_results, alpha, k
+            )
+            return combined
+        except Exception as e:
+            logger.error(f"Error in hybrid retrieval: {e}")
+            return self.vector_store.search(query, k=k)
+
+    def _bm25_search(self, query: str, k: int) -> List[Document]:
+        """Perform BM25 search"""
+        if not self.bm25_available or self._bm25_class is None:
+            logger.warning("BM25 not available, using keyword search instead")
+            return self._keyword_search(query, k)
+        
+        try:
+            # Get all documents from collection
+            all_docs = self.vector_store.vector_store.get()
+            documents = all_docs.get("documents", [])
+
+            if not documents:
+                return []
+
+            # Tokenize documents and query
+            tokenized_docs = [doc.split() for doc in documents]
+            bm25 = self._bm25_class(tokenized_docs)
+
+            # Get scores
+            tokenized_query = query.split()
+            scores = bm25.get_scores(tokenized_query)
+
+            # Get top k
+            top_indices = sorted(
+                range(len(scores)), key=lambda i: scores[i], reverse=True
+            )[:k]
+
+            results = []
+            metadatas = all_docs.get("metadatas", [])
+            for idx in top_indices:
+                doc = Document(
+                    page_content=documents[idx],
+                    metadata=metadatas[idx] if idx < len(metadatas) else {},
+                )
+                results.append(doc)
+
+            return results
+        except Exception as e:
+            logger.error(f"Error in BM25 search: {e}")
+            return []
+
+    def _keyword_search(self, query: str, k: int) -> List[Document]:
+        """Perform keyword-based search using simple matching"""
+        all_docs = self.vector_store.vector_store.get()
+        documents = all_docs.get("documents", [])
+        metadatas = all_docs.get("metadatas", [])
+
+        if not documents:
+            return []
+
+        query_words = set(query.lower().split())
+        scored_docs = []
+
+        for i, doc in enumerate(documents):
+            content = doc.lower()
+            # Count matching words
+            matches = sum(1 for word in query_words if word in content)
+            score = matches / len(query_words) if query_words else 0
+            scored_docs.append((i, score))
+
+        scored_docs.sort(key=lambda x: x[1], reverse=True)
+        top_indices = [idx for idx, _ in scored_docs[:k]]
+
+        results = []
+        for idx in top_indices:
+            doc = Document(
+                page_content=documents[idx],
+                metadata=metadatas[idx] if idx < len(metadatas) else {},
+            )
+            results.append(doc)
+
+        return results
+
+    def _combine_results(
+        self, semantic: List[Document], keyword: List[Document], alpha: float, k: int
+    ) -> List[Document]:
+        """Combine semantic and keyword results using reciprocal rank fusion"""
+        # Simple combination: interleave results
+        combined = []
+        seen_content = set()
+
+        # Add semantic results first (weighted by alpha)
+        for doc in semantic:
+            content_key = doc.page_content[:100]
+            if content_key not in seen_content:
+                seen_content.add(content_key)
+                combined.append(doc)
+
+        # Add keyword results
+        for doc in keyword:
+            content_key = doc.page_content[:100]
+            if content_key not in seen_content:
+                seen_content.add(content_key)
+                combined.append(doc)
+
+        return combined[:k]
 
 
-class BM25Retriever:
-    """Simple sparse BM25 retriever over the documents stored in Chroma."""
+class MultiQueryRetrieval(RetrievalStrategy):
+    """Generate multiple queries for better retrieval"""
 
-    def __init__(self, documents: List[Document], k1: float = 1.5, b: float = 0.75):
-        self.documents = documents
-        self.k1 = k1
-        self.b = b
-        self.doc_tokens = [_tokenize(doc.page_content) for doc in documents]
-        self.doc_lengths = [len(tokens) for tokens in self.doc_tokens]
-        self.avg_doc_length = (
-            sum(self.doc_lengths) / len(self.doc_lengths) if self.doc_lengths else 0.0
+    def __init__(
+        self, vector_store: ChromaVectorStore, embedding_manager: EmbeddingManager
+    ):
+        super().__init__(vector_store, embedding_manager)
+
+    def retrieve(self, query: str, k: int = 5, **kwargs) -> List[Document]:
+        """Retrieve using multiple generated queries"""
+        # Generate variations of the query
+        variations = self._generate_queries(query)
+
+        # Retrieve for each query
+        all_results = []
+        seen_contents = set()
+
+        per_query_k = kwargs.get("per_query_k", max(k // 2, 1))
+
+        for var_query in variations:
+            docs = self.vector_store.search(var_query, k=per_query_k, **kwargs)
+            for doc in docs:
+                # Deduplicate by content
+                content_key = doc.page_content[:100]  # Use first 100 chars as key
+                if content_key not in seen_contents:
+                    seen_contents.add(content_key)
+                    all_results.append(doc)
+
+        # Return top k from combined results
+        return all_results[:k]
+
+    def _generate_queries(self, query: str) -> List[str]:
+        """Generate multiple query variations"""
+        # Simple variations
+        variations = [
+            query,
+            query.lower(),
+            query.capitalize(),
+            f"information about {query}",
+            f"details regarding {query}",
+            f"explanation of {query}",
+        ]
+
+        # Remove duplicates and limit
+        return list(set(variations))[:5]
+
+
+class ParentDocumentRetrieval(RetrievalStrategy):
+    """Retrieve parent documents based on child chunks"""
+
+    def __init__(
+        self, vector_store: ChromaVectorStore, embedding_manager: EmbeddingManager
+    ):
+        super().__init__(vector_store, embedding_manager)
+        self.parent_child_mapping = (
+            {}
+        )  # Store mapping between chunk IDs and parent documents
+
+    def retrieve(self, query: str, k: int = 5, **kwargs) -> List[Document]:
+        """Retrieve chunks and return parent documents"""
+        # Get relevant chunks
+        chunks = self.vector_store.search(query, k=k * 2, **kwargs)
+
+        # Retrieve parent documents
+        parent_docs = []
+        seen_parents = set()
+
+        for chunk in chunks:
+            parent_id = chunk.metadata.get("parent_id") or chunk.metadata.get("source")
+            if parent_id and parent_id not in seen_parents:
+                # Try to get parent document from mapping or create a placeholder
+                parent = self._get_parent_document(parent_id)
+                if parent:
+                    parent_docs.append(parent)
+                    seen_parents.add(parent_id)
+
+        # If no parents found, return chunks
+        return parent_docs if parent_docs else chunks[:k]
+
+    def _get_parent_document(self, parent_id: str) -> Optional[Document]:
+        """Retrieve parent document by ID"""
+        # In practice, you'd have a separate collection or mapping
+        # For now, create a document from the ID
+        return Document(
+            page_content=f"Parent document: {parent_id}",
+            metadata={"parent_id": parent_id, "source": parent_id},
         )
-        self.doc_freqs = self._build_doc_freqs(self.doc_tokens)
-        self.doc_count = len(documents)
-
-    @staticmethod
-    def _build_doc_freqs(doc_tokens: Iterable[List[str]]) -> Counter:
-        doc_freqs = Counter()
-        for tokens in doc_tokens:
-            doc_freqs.update(set(tokens))
-        return doc_freqs
-
-    def _idf(self, term: str) -> float:
-        doc_freq = self.doc_freqs.get(term, 0)
-        return math.log(1 + (self.doc_count - doc_freq + 0.5) / (doc_freq + 0.5))
-
-    def score(self, query: str) -> Dict[str, float]:
-        query_terms = _tokenize(query)
-        if not query_terms or not self.documents:
-            return {}
-
-        scores: Dict[str, float] = {}
-        for index, tokens in enumerate(self.doc_tokens):
-            if not tokens:
-                continue
-
-            term_counts = Counter(tokens)
-            doc_length = self.doc_lengths[index]
-            score = 0.0
-
-            for term in query_terms:
-                term_frequency = term_counts.get(term, 0)
-                if term_frequency == 0:
-                    continue
-
-                denominator = term_frequency + self.k1 * (
-                    1 - self.b + self.b * doc_length / (self.avg_doc_length or 1)
-                )
-                score += self._idf(term) * (
-                    term_frequency * (self.k1 + 1) / denominator
-                )
-
-            if score > 0:
-                scores[_document_key(self.documents[index])] = score
-
-        return scores
-
-    def retrieve(self, query: str, k: int) -> List[Tuple[Document, float]]:
-        scores = self.score(query)
-        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)[:k]
-        document_by_key = {_document_key(doc): doc for doc in self.documents}
-        return [(document_by_key[key], score) for key, score in ranked]
 
 
-class HybridRetriever:
-    """
-    Combines dense vector retrieval with sparse BM25, then expands matching child
-    chunks into parent document contexts.
-    """
+class AdvancedRetriever:
+    """Main retriever class with multiple strategies"""
+
+    RETRIEVAL_STRATEGIES = {
+        "simple": SimpleRetrieval,
+        "mmr": MMRRetrieval,
+        "hybrid": HybridRetrieval,
+        "multi_query": MultiQueryRetrieval,
+        "parent": ParentDocumentRetrieval,
+    }
 
     def __init__(
         self,
-        vector_store,
-        dense_weight: float = 0.65,
-        sparse_weight: float = 0.35,
-        pool_size: int = 30,
-        parent_max_chars: int = 4000,
+        vector_store: ChromaVectorStore,
+        embedding_manager: EmbeddingManager,
+        strategy: str = "simple",
+        **strategy_kwargs,
     ):
+        """
+        Initialize the retriever
+
+        Args:
+            vector_store: ChromaVectorStore instance
+            embedding_manager: EmbeddingManager instance
+            strategy: Retrieval strategy ('simple', 'mmr', 'hybrid', 'compression', 'multi_query', 'parent')
+            **strategy_kwargs: Strategy-specific parameters
+        """
         self.vector_store = vector_store
-        self.dense_weight = dense_weight
-        self.sparse_weight = sparse_weight
-        self.pool_size = pool_size
-        self.parent_max_chars = parent_max_chars
-        self._documents: Optional[List[Document]] = None
-        self._bm25: Optional[BM25Retriever] = None
+        self.embedding_manager = embedding_manager
+        self.strategy_name = strategy
+        self.strategy_kwargs = strategy_kwargs
 
-    @property
-    def documents(self) -> List[Document]:
-        if self._documents is None:
-            self._documents = self._load_documents()
-        return self._documents
+        self.retriever = self._create_retriever(strategy)
 
-    @property
-    def bm25(self) -> BM25Retriever:
-        if self._bm25 is None:
-            self._bm25 = BM25Retriever(self.documents)
-        return self._bm25
-
-    def _load_documents(self) -> List[Document]:
-        try:
-            raw = self.vector_store.vector_store._collection.get(
-                include=["documents", "metadatas"]
-            )
-        except Exception as exc:
-            logger.error(f"Could not load documents from Chroma for BM25: {exc}")
-            return []
-
-        ids = raw.get("ids", []) or []
-        texts = raw.get("documents", []) or []
-        metadatas = raw.get("metadatas", []) or []
-        documents = []
-
-        for index, text in enumerate(texts):
-            metadata = dict(metadatas[index] or {})
-            metadata.setdefault("id", ids[index] if index < len(ids) else str(index))
-            metadata.setdefault("child_index", index)
-            documents.append(Document(page_content=text or "", metadata=metadata))
-
-        logger.info(f"Loaded {len(documents)} chunks for sparse retrieval")
-        return documents
-
-    def _dense_scores(self, query: str, k: int) -> Dict[str, Tuple[Document, float]]:
-        dense_results = self.vector_store.search_with_score(query, k=k)
-        scores: Dict[str, Tuple[Document, float]] = {}
-
-        for document, distance in dense_results:
-            key = _document_key(document)
-            relevance = 1 / (1 + max(float(distance), 0.0))
-            scores[key] = (document, relevance)
-
-        return scores
-
-    def _sparse_scores(self, query: str, k: int) -> Dict[str, Tuple[Document, float]]:
-        return {
-            _document_key(document): (document, score)
-            for document, score in self.bm25.retrieve(query, k=k)
-        }
-
-    def _combine_scores(
-        self,
-        dense_scores: Dict[str, Tuple[Document, float]],
-        sparse_scores: Dict[str, Tuple[Document, float]],
-    ) -> List[Document]:
-        dense_norm = _min_max(
-            {key: score for key, (_, score) in dense_scores.items()}
+    def _create_retriever(self, strategy: str) -> RetrievalStrategy:
+        """Factory method to create appropriate retriever"""
+        strategy_class = self.RETRIEVAL_STRATEGIES.get(
+            strategy.lower(), SimpleRetrieval
         )
-        sparse_norm = _min_max(
-            {key: score for key, (_, score) in sparse_scores.items()}
-        )
-        all_keys = set(dense_scores) | set(sparse_scores)
-        ranked_documents = []
+        return strategy_class(self.vector_store, self.embedding_manager)
 
-        for key in all_keys:
-            document = dense_scores.get(key, sparse_scores.get(key))[0]
-            score = (
-                self.dense_weight * dense_norm.get(key, 0.0)
-                + self.sparse_weight * sparse_norm.get(key, 0.0)
-            )
-            metadata = dict(document.metadata or {})
-            metadata["dense_score"] = dense_norm.get(key, 0.0)
-            metadata["bm25_score"] = sparse_norm.get(key, 0.0)
-            metadata["hybrid_score"] = score
-            metadata["retrieval_stage"] = "hybrid_child"
-            ranked_documents.append(
-                Document(page_content=document.page_content, metadata=metadata)
-            )
+    def retrieve(self, query: str, k: int = 5, **kwargs) -> List[Document]:
+        """Retrieve documents using configured strategy"""
+        return self.retriever.retrieve(query, k=k, **kwargs)
 
-        ranked_documents.sort(
-            key=lambda document: document.metadata.get("hybrid_score", 0.0),
-            reverse=True,
-        )
-        return ranked_documents
+    def retrieve_with_scores(
+        self, query: str, k: int = 5, **kwargs
+    ) -> List[Tuple[Document, float]]:
+        """Retrieve documents with relevance scores (simple strategy only)"""
+        if isinstance(self.retriever, SimpleRetrieval):
+            return self.retriever.retrieve_with_scores(query, k=k, **kwargs)
+        else:
+            logger.warning("Retrieve with scores only available for simple strategy")
+            results = self.retriever.retrieve(query, k=k, **kwargs)
+            return [(doc, 1.0) for doc in results]  # Placeholder scores
 
-    def _expand_to_parent_documents(self, child_documents: List[Document]) -> List[Document]:
-        corpus_by_parent: Dict[str, List[Document]] = defaultdict(list)
-        for document in self.documents:
-            corpus_by_parent[_parent_key(document)].append(document)
+    def change_strategy(self, strategy: str, **strategy_kwargs):
+        """Change retrieval strategy dynamically"""
+        self.strategy_name = strategy
+        self.strategy_kwargs = strategy_kwargs
+        self.retriever = self._create_retriever(strategy)
 
-        parent_results: Dict[str, Document] = {}
-        for rank, child in enumerate(child_documents, 1):
-            key = _parent_key(child)
-            if key in parent_results:
-                continue
-
-            siblings = sorted(
-                corpus_by_parent.get(key, [child]),
-                key=lambda doc: doc.metadata.get("child_index", 0),
-            )
-            parent_text_parts = []
-            total_chars = 0
-            for sibling in siblings:
-                text = sibling.page_content.strip()
-                if not text:
-                    continue
-                if total_chars + len(text) > self.parent_max_chars:
-                    remaining = self.parent_max_chars - total_chars
-                    if remaining > 200:
-                        parent_text_parts.append(text[:remaining])
-                    break
-                parent_text_parts.append(text)
-                total_chars += len(text)
-
-            metadata = dict(child.metadata or {})
-            metadata["parent_id"] = key
-            metadata["child_rank"] = rank
-            metadata["retrieval_stage"] = "parent_expanded"
-            metadata["child_chunks_in_parent"] = len(siblings)
-            parent_results[key] = Document(
-                page_content="\n\n".join(parent_text_parts) or child.page_content,
-                metadata=metadata,
-            )
-
-        return list(parent_results.values())
-
-    def retrieve(self, query: str, k: Optional[int] = None, **kwargs: Any) -> List[Document]:
-        pool_size = k or self.pool_size
-        dense_scores = self._dense_scores(query, pool_size)
-        sparse_scores = self._sparse_scores(query, pool_size)
-
-        if not dense_scores and not sparse_scores:
-            logger.warning("Hybrid retrieval found no documents")
-            return []
-
-        child_pool = self._combine_scores(dense_scores, sparse_scores)
-        return self._expand_to_parent_documents(child_pool)[:pool_size]
-
-
-AdvancedRetriever = HybridRetriever
+    async def aretrieve(self, query: str, k: int = 5, **kwargs) -> List[Document]:
+        """Async retrieval"""
+        return await asyncio.to_thread(self.retrieve, query, k, **kwargs)

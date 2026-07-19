@@ -1,11 +1,10 @@
 from langchain_ollama import ChatOllama
-from langchain_core.messages import SystemMessage, HumanMessage
 from typing import Optional, List, Dict, Any
 import logging
 from config import config
-from prompts.system_prompt import system_prompt as default_system_prompt
 
 logger = logging.getLogger(__name__)
+
 
 class LLMManager:
     """Simple LLM manager for Ollama"""
@@ -15,17 +14,23 @@ class LLMManager:
         model_name: str = config.llm,
         base_url: str = config.base_url,
         temperature: float = config.temperature,
-        system_prompt: str = default_system_prompt,
         **kwargs,
     ):
-        self.system_prompt = system_prompt
+        """
+        Initialize LLM manager
+
+        Args:
+            model_name: Ollama model name (default: llama3:8b)
+            base_url: Ollama server URL
+            temperature: Sampling temperature
+        """
+        self.model_name = model_name
+        self.base_url = base_url
+        self.temperature = temperature
 
         # Initialize the LLM
         self.llm = ChatOllama(
-            model=model_name, 
-            base_url=base_url, 
-            temperature=temperature, 
-            **kwargs
+            model=model_name, base_url=base_url, temperature=temperature, **kwargs
         )
         logger.info(f"Initialized LLM: {model_name}")
 
@@ -35,18 +40,16 @@ class LLMManager:
 
         Args:
             prompt: User prompt
-            system_prompt: Optional system prompt override
+            system_prompt: Optional system prompt
 
         Returns:
             Generated response
         """
+        from langchain_core.messages import SystemMessage, HumanMessage
 
-        active_system_prompt = (
-            self.system_prompt if system_prompt is None else system_prompt
-        )
         messages = []
-        if active_system_prompt:
-            messages.append(SystemMessage(content=active_system_prompt))
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
 
         try:
@@ -74,24 +77,24 @@ class LLMManager:
         Returns:
             Generated response
         """
-        prompt = f"""Context: {context}
+        system_prompt = """You are a helpful assistant. Answer questions based ONLY on the provided context.
+If you cannot answer from the context, say "I don't have enough information to answer this."
+Be concise and accurate."""
 
-Question: {query}
+        prompt = f"""Context:{context}, Question: {query}
+                    Answer based on the context above:"""
 
-Answer based on the context above:"""
-
-        return self.generate(prompt)
+        return self.generate(prompt, system_prompt)
 
     def stream_generate(self, prompt: str, system_prompt: Optional[str] = None):
         """
         Stream generate a response
         """
-        active_system_prompt = (
-            self.system_prompt if system_prompt is None else system_prompt
-        )
+        from langchain_core.messages import SystemMessage, HumanMessage
+
         messages = []
-        if active_system_prompt:
-            messages.append(SystemMessage(content=active_system_prompt))
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
 
         try:
@@ -101,10 +104,10 @@ Answer based on the context above:"""
             logger.error(f"Error streaming: {e}")
             yield f"Error: {str(e)}"
 
-    def validate(self, system_prompt: Optional[str] = None) -> bool:
+    def validate(self) -> bool:
         """Test if LLM is working"""
         try:
-            response = self.generate("Hello, respond with 'OK'", system_prompt)
+            response = self.generate("Hello, respond with 'OK'")
             return "OK" in response or len(response) > 0
         except Exception as e:
             logger.error(f"LLM validation failed: {e}")
