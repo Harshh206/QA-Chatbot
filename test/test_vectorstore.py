@@ -11,7 +11,7 @@ def test_vector_store():
 
     # Initialize
     embedding_manager = EmbeddingManager(
-        model_name=config.embedding_model, base_url=config.ollama_base_url
+        model_name=config.embedding_model, base_url=config.base_url
     )
 
     vector_store = ChromaVectorStore(

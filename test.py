@@ -23,7 +23,7 @@ def test_rag():
 
     # Test queries
     test_queries = [
-        "What is the main topic of the documents?",
+        "What type of documents?",
     ]
 
     for query in test_queries:
@@ -44,12 +44,12 @@ def test_chat():
     from chat import run_chat
 
     print("\nStarting chat mode...")
-    run_chat(config=config, retriever_strategy="hybrid", k=3)
+    run_chat(config=config, retriever_strategy="mmr", k=3)
 
 
 if __name__ == "__main__":
     # Run tests
-    test_rag()
+    #test_rag()
 
     # Uncomment for chat
-    #test_chat()
+    test_chat()

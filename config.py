@@ -15,6 +15,12 @@ class PipelineConfig:
     # Embedding settings
     embedding_model: str = "qwen3-embedding:0.6b"
     embedding_dimension: int = 768
+
+    # Retrieval settings
+    retrieval_pool_size: int = 30
+    use_parent_child_retrieval: bool = True
+    reranker_model: str = "qllama/bge-reranker-v2-m3"
+
     # Vector DB settings
     chroma_persist_dir: str = "./chroma_db"
     collection_name: str = "my_rag_collection"

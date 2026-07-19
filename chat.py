@@ -1,5 +1,5 @@
 import logging
-from .rag_chain import RAGChain, create_rag_chain
+from rag_chain import RAGChain, create_rag_chain
 #from config import config
 from typing import Optional
 
@@ -47,7 +47,7 @@ class ChatSession:
 def run_chat(
     config,
     retriever_strategy: str = "hybrid",
-    reranker_type: Optional[str] = None,
+    reranker_type: Optional[str] = "cross_encoder",
     k: int = 3,
     **kwargs,
 ):

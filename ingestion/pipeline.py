@@ -9,6 +9,7 @@ from . import chunker
 import logging
 from typing import List, Optional
 from pathlib import Path
+import uuid
 
 
 logging.basicConfig(level=logging.INFO)
@@ -69,10 +70,12 @@ class IngestionPipeline:
             # 4. Extract metadata
             logger.info("Step 4: Extracting metadata")
             documents = self.metadata_extractor.batch_extract(documents)
+            documents = self._add_parent_metadata(documents)
 
             # 5. Chunk documents
             logger.info("Step 5: Chunking documents")
             chunks = self.chunker.split(documents)
+            chunks = self._add_child_metadata(chunks)
             logger.info(f"Created {len(chunks)} chunks")
 
             # 6. Add embeddings
@@ -106,6 +109,38 @@ class IngestionPipeline:
             Dictionary with processing results
         """
         return self.process(input_path=file_path)
+
+    def _add_parent_metadata(self, documents: List) -> List:
+        """Tag source documents so child chunks can be expanded later."""
+        for index, document in enumerate(documents):
+            parent_id = (
+                document.metadata.get("parent_id")
+                or document.metadata.get("content_hash")
+                or document.metadata.get("source")
+                or str(uuid.uuid4())
+            )
+            document.metadata["parent_id"] = str(parent_id)
+            document.metadata["parent_rank"] = index
+            document.metadata["parent_source"] = document.metadata.get(
+                "source", f"document_{index}"
+            )
+        return documents
+
+    def _add_child_metadata(self, chunks: List) -> List:
+        """Tag chunks with stable child metadata for parent-child retrieval."""
+        parent_counts = {}
+        for index, chunk in enumerate(chunks):
+            parent_id = str(chunk.metadata.get("parent_id") or "unknown_parent")
+            child_index = parent_counts.get(parent_id, 0)
+            parent_counts[parent_id] = child_index + 1
+
+            chunk.metadata["child_id"] = chunk.metadata.get(
+                "child_id", f"{parent_id}:{child_index}"
+            )
+            chunk.metadata["chunk_index"] = child_index
+            chunk.metadata["global_chunk_index"] = index
+            chunk.metadata["is_child_chunk"] = True
+        return chunks
 
     def process_directory(self, dir_path: Optional[str]) -> dict:
         """
