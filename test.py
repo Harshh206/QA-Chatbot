@@ -44,7 +44,7 @@ def test_chat():
     from chat import run_chat
 
     print("\nStarting chat mode...")
-    run_chat(config=config, top_k=5, score_threshold=0.70)
+    run_chat(config=config, retriever_strategy="hybrid", k=3)
 
 
 if __name__ == "__main__":

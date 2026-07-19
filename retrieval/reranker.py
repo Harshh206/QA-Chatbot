@@ -2,11 +2,12 @@ from langchain_core.documents import Document
 from typing import List, Optional
 import logging
 import re
+from config import config
 
 logger = logging.getLogger(__name__)
 
 
-class OllamaCrossEncoderReranker:
+class CrossEncoderReranker:
     """
     Cross-Encoder Reranker using sentence-transformers.
     Uses BAAI/bge-reranker-v2-m3 from HuggingFace (local).
@@ -14,8 +15,8 @@ class OllamaCrossEncoderReranker:
 
     def __init__(
         self,
-        model_name: str = "BAAI/bge-reranker-v2-m3",
-        score_threshold: float = 0.70,
+        model_name: str = config.reranker_model,
+        score_threshold: float = config.threshold,
         max_docs: int = 20,
         **kwargs,
     ):

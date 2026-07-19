@@ -4,7 +4,7 @@ import logging
 import re
 
 from .retriever import HybridRetriever
-from .reranker import OllamaCrossEncoderReranker
+from .reranker import CrossEncoderReranker
 from ingestion.vectorstore import ChromaVectorStore
 from ingestion.embedding import EmbeddingManager
 
@@ -50,7 +50,7 @@ class RetrievalPipeline:
             rrf_k=rrf_k,
         )
 
-        self.reranker = OllamaCrossEncoderReranker(
+        self.reranker = CrossEncoderReranker(
             model_name=reranker_model,
             score_threshold=score_threshold,
         )
@@ -60,13 +60,13 @@ class RetrievalPipeline:
 
         logger.info(f"Retrieving for query: {query}")
 
-        candidates = self.retriever.retrieve(query, k=final_k * 3)
-        logger.info(f"Hybrid retrieval returned {len(candidates)} candidates")
+        docs = self.retriever.retrieve(query, k=final_k * 3)
+        logger.info(f"Hybrid retrieval returned {len(docs)} docs")
 
-        if not candidates:
+        if not docs:
             return []
 
-        reranked = self.reranker.rerank(query, candidates)
+        reranked = self.reranker.rerank(query, docs)
         logger.info(f"Reranker returned {len(reranked)} documents")
 
         return reranked[:final_k]

@@ -17,9 +17,9 @@ class PipelineConfig:
     embedding_dimension: int = 768
 
     # Reranker settings
-    reranker_model: str = "qllama/bge-reranker-v2-m3:latest"
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
     threshold: float  = 0.70
-    
+
     # Vector DB settings
     chroma_persist_dir: str = "./chroma_db"
     collection_name: str = "my_rag_collection"

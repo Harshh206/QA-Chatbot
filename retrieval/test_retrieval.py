@@ -4,7 +4,7 @@ from ingestion.embedding import EmbeddingManager
 from ingestion.vectorstore import ChromaVectorStore
 from retrieval.retrieval_pipeline import RetrievalPipeline, create_retrieval_pipeline
 from retrieval.retriever import HybridRetriever, BM25SparseRetriever, DenseRetriever
-from retrieval.reranker import OllamaCrossEncoderReranker
+from retrieval.reranker import CrossEncoderReranker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -96,9 +96,9 @@ def test_reranker():
 
     from langchain_core.documents import Document
 
-    reranker = OllamaCrossEncoderReranker(
-        model_name="BAAI/bge-reranker-v2-m3",
-        score_threshold=0.50,
+    reranker = CrossEncoderReranker(
+        model_name= config.reranker_model,
+        score_threshold=config.threshold,
     )
 
     dummy_docs = [
