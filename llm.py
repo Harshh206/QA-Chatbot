@@ -11,7 +11,7 @@ class LLMManager:
 
     def __init__(
         self,
-        model_name: str = config.llm,
+        model_name: str = config.chat_model,
         base_url: str = config.base_url,
         temperature: float = config.temperature,
         **kwargs,

@@ -1,5 +1,5 @@
 import logging
-from .rag_chain import RAGChain, create_rag_chain
+from rag_chain import RAGChain, create_rag_chain
 #from config import config
 from typing import Optional
 
@@ -46,9 +46,9 @@ class ChatSession:
 
 def run_chat(
     config,
-    retriever_strategy: str = "hybrid",
-    reranker_type: Optional[str] = None,
-    k: int = 3,
+    top_k: int = 5,
+    score_threshold: float = 0.70,
+    reranker_model: str = "qllama/bge-reranker-v2-m3:latest",
     **kwargs,
 ):
     """
@@ -56,16 +56,16 @@ def run_chat(
 
     Args:
         config: PipelineConfig
-        retriever_strategy: Retrieval strategy
-        reranker_type: Reranker type
-        k: Number of documents
+        top_k: Number of documents to retrieve
+        score_threshold: Minimum reranker score
+        reranker_model: Ollama reranker model
     """
     print("\n" + "=" * 60)
     print("🤖 RAG Chat Assistant")
     print("=" * 60)
     print(f"\nUsing: {getattr(config, 'llm', 'llama3:8b')}")
-    print(f"Strategy: {retriever_strategy}")
-    print(f"Documents per query: {k}\n")
+    print(f"Top-K: {top_k}")
+    print(f"Score Threshold: {score_threshold}\n")
     print("Commands:")
     print("  /help    - Show this message")
     print("  /history - Show conversation history")
@@ -77,9 +77,9 @@ def run_chat(
         # Create RAG chain
         rag = create_rag_chain(
             config=config,
-            retriever_strategy=retriever_strategy,
-            reranker_type=reranker_type,
-            k=k,
+            top_k=top_k,
+            score_threshold=score_threshold,
+            reranker_model=reranker_model,
             **kwargs,
         )
 

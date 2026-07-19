@@ -19,21 +19,19 @@ def main():
     parser.add_argument("--dir", type=str, help="Process directory")
 
     # Retrieval options
+    parser.add_argument("--k", type=int, default=5, help="Top documents to retrieve")
     parser.add_argument(
-        "--strategy",
-        type=str,
-        default="simple",
-        choices=["simple", "mmr", "hybrid", "multi_query"],
-        help="Retrieval strategy",
+        "--threshold",
+        type=float,
+        default=0.70,
+        help="Reranker score threshold (0.0-1.0)",
     )
     parser.add_argument(
-        "--reranker",
+        "--reranker-model",
         type=str,
-        default=None,
-        choices=["cross_encoder", "llm", "rrf"],
-        help="Reranker type",
+        default="qllama/bge-reranker-v2-m3:latest",
+        help="Ollama reranker model",
     )
-    parser.add_argument("--k", type=int, default=3, help="Documents to retrieve")
 
     # Query options
     parser.add_argument("--query", type=str, help="Single query")
@@ -55,7 +53,7 @@ def main():
 
     # Override LLM if specified
     if args.llm:
-        config.llm = args.llm
+        config.chat_model = args.llm
 
     # Initialize pipeline
     pipeline = IngestionPipeline(config)
@@ -77,25 +75,25 @@ def main():
     if args.chat:
         run_chat(
             config=config,
-            retriever_strategy=args.strategy,
-            reranker_type=args.reranker,
-            k=args.k,
+            top_k=args.k,
+            score_threshold=args.threshold,
+            reranker_model=args.reranker_model,
         )
         return
 
     # Single query
     if args.query:
         print(f"\n📝 Query: {args.query}")
-        print(f"Strategy: {args.strategy}")
-        print(f"Documents: {args.k}\n")
+        print(f"Top-K: {args.k}")
+        print(f"Threshold: {args.threshold}\n")
 
         try:
             # Create RAG chain
             rag = create_rag_chain(
                 config=config,
-                retriever_strategy=args.strategy,
-                reranker_type=args.reranker,
-                k=args.k,
+                top_k=args.k,
+                score_threshold=args.threshold,
+                reranker_model=args.reranker_model,
             )
 
             # Get response

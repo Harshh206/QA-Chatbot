@@ -7,7 +7,7 @@ class PipelineConfig:
     chunk_overlap: int = 96
 
     # LLM settings
-    llm: str = "llama3:8b"
+    chat_model: str = "llama3:8b"
     temperature: float = 0.9
     base_url: str = "http://localhost:11434"
 
@@ -15,6 +15,11 @@ class PipelineConfig:
     # Embedding settings
     embedding_model: str = "qwen3-embedding:0.6b"
     embedding_dimension: int = 768
+
+    # Reranker settings
+    reranker_model: str = "qllama/bge-reranker-v2-m3:latest"
+    threshold: float  = 0.70
+    
     # Vector DB settings
     chroma_persist_dir: str = "./chroma_db"
     collection_name: str = "my_rag_collection"

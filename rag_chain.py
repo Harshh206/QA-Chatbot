@@ -32,7 +32,7 @@ class RAGChain:
         # Use provided LLM or create default
         if llm_manager is None:
             self.llm = LLMManager(
-                model_name=config.llm,
+                model_name=config.chat_model,
                 base_url=config.base_url,
             )
         else:
@@ -183,9 +183,9 @@ Answer based on the context above:"""
 
 def create_rag_chain(
     config,
-    retriever_strategy: str = "simple",
-    reranker_type: Optional[str] = None,
-    k: int = 3,
+    top_k: int = 5,
+    score_threshold: float = 0.70,
+    reranker_model: str = "qllama/bge-reranker-v2-m3:latest",
     **kwargs,
 ) -> RAGChain:
     """
@@ -193,21 +193,20 @@ def create_rag_chain(
 
     Args:
         config: PipelineConfig
-        retriever_strategy: 'simple', 'hybrid', 'mmr', etc.
-        reranker_type: 'cross_encoder', etc.
-        k: Number of documents to retrieve
+        top_k: Number of documents to retrieve
+        score_threshold: Minimum reranker score to keep a document
+        reranker_model: Ollama reranker model name
 
     Returns:
         RAGChain instance
     """
-    
 
     # Create retrieval pipeline
     retrieval = create_retrieval_pipeline(
         config=config,
-        retriever_strategy=retriever_strategy,
-        reranker_type=reranker_type,
-        k=k,
+        top_k=top_k,
+        score_threshold=score_threshold,
+        reranker_model=reranker_model,
         **kwargs,
     )
 
@@ -217,4 +216,4 @@ def create_rag_chain(
     )
 
     # Create RAG chain
-    return RAGChain(retrieval_pipeline=retrieval, llm_manager=llm, k=k)
+    return RAGChain(retrieval_pipeline=retrieval, llm_manager=llm, k=top_k)

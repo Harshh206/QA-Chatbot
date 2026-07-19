@@ -19,7 +19,7 @@ def test_rag():
     print("=" * 60 + "\n")
 
     # Create RAG chain
-    rag = create_rag_chain(config=config, retriever_strategy="hybrid", k=3)
+    rag = create_rag_chain(config=config, top_k=5, score_threshold=0.70)
 
     # Test queries
     test_queries = [
@@ -44,7 +44,7 @@ def test_chat():
     from chat import run_chat
 
     print("\nStarting chat mode...")
-    run_chat(config=config, retriever_strategy="hybrid", k=3)
+    run_chat(config=config, top_k=5, score_threshold=0.70)
 
 
 if __name__ == "__main__":
