@@ -1,237 +1,148 @@
-from .retriever import AdvancedRetriever
-from .reranker import get_reranker
-from .query_processor import QueryProcessor
-from ingestion.vectorstore import ChromaVectorStore
-from ingestion.embedding import EmbeddingManager
-from config import config
-from typing import List, Dict, Any, Optional, Tuple
-from langchain_core.documents import Document
 import logging
+from typing import Any, Dict, List, Optional
+
+from langchain_core.documents import Document
+
+from ingestion.embedding import EmbeddingManager
+from ingestion.vectorstore import ChromaVectorStore
+from retrieval.reranker import create_reranker
+from retrieval.retriever import HybridRetriever
 
 logger = logging.getLogger(__name__)
 
 
 class RetrievalPipeline:
-    """Complete retrieval pipeline with processing, retrieval, and reranking"""
+    """
+    Orchestrates Hybrid Retrieval + Parent-Child Chunking + Cross-Encoder Reranking.
+
+    Flow:
+    1. Pull a broad pool with dense Chroma retrieval and sparse BM25.
+    2. Expand matching child chunks into parent document contexts.
+    3. Rerank the parent pool with a cross-encoder and return the final top k.
+    """
 
     def __init__(
         self,
-        vector_store: ChromaVectorStore,
-        embedding_manager: EmbeddingManager,
-        retriever_strategy: str = "simple",
-        reranker_type: Optional[str] = None,
-        **kwargs,
+        retriever: HybridRetriever,
+        reranker=None,
+        pool_size: int = 30,
+        **kwargs: Any,
     ):
-        """
-        Initialize retrieval pipeline
-
-        Args:
-            vector_store: ChromaVectorStore instance
-            embedding_manager: EmbeddingManager instance
-            retriever_strategy: Retrieval strategy name
-            reranker_type: Reranker type ('cross_encoder', 'llm', 'rrf')
-            **kwargs: Additional parameters
-        """
-        self.vector_store = vector_store
-        self.embedding_manager = embedding_manager
-        self.query_processor = QueryProcessor(embedding_manager)
-
-        # Extract k values from kwargs
-        self.k = kwargs.get("k", 10)
-        self.retrieve_k = kwargs.get("retrieve_k", self.k * 2)
-
-        # Remove k from kwargs before passing to retriever
-        retriever_kwargs = {
-            k: v
-            for k, v in kwargs.items()
-            if k not in ["k", "retrieve_k", "reranker_type"]
-        }
-
-        # Initialize retriever
-        self.retriever = AdvancedRetriever(
-            vector_store,
-            embedding_manager,
-            strategy=retriever_strategy,
-            **retriever_kwargs,
-        )
-
-        # Initialize reranker if specified
-        self.reranker = None
-        if reranker_type:
-            # Filter kwargs for reranker (remove pipeline-specific params)
-            reranker_kwargs = {
-                k: v
-                for k, v in kwargs.items()
-                if k
-                not in [
-                    "k",
-                    "retrieve_k",
-                    "strategy",
-                    "retriever_strategy",
-                    "reranker_type",
-                ]
-            }
-            self.reranker = get_reranker(reranker_type, **reranker_kwargs)
+        self.retriever = retriever
+        self.reranker = reranker
+        self.pool_size = pool_size
 
     def retrieve(
-        self, query: str, k: Optional[int] = None, use_reranker: bool = True, **kwargs
+        self,
+        query: str,
+        k: int = 3,
+        use_reranker: bool = True,
+        pool_size: Optional[int] = None,
+        **kwargs: Any,
     ) -> List[Document]:
-        """
-        Retrieve relevant documents
+        if not query or not query.strip():
+            return []
 
-        Args:
-            query: Search query
-            k: Number of documents to return
-            use_reranker: Whether to use reranker
-            **kwargs: Additional parameters
+        retrieval_pool_size = pool_size or kwargs.pop("retrieval_pool_size", None)
+        retrieval_pool_size = retrieval_pool_size or max(self.pool_size, k)
 
-        Returns:
-            List of relevant documents
-        """
-        # Process query
-        processed = self.query_processor.preprocess_query(query)
-        logger.info(f"Retrieving for query: {processed}")
+        retrieved = self.retriever.retrieve(query, k=retrieval_pool_size, **kwargs)
+        if not retrieved:
+            return []
 
-        # Determine k values
-        final_k = k or self.k
-        retrieve_k = kwargs.get("retrieve_k", self.retrieve_k)
+        if use_reranker and self.reranker is not None:
+            return self.reranker.rerank(query, retrieved, k=k)
 
-        # Retrieve more documents than needed for reranking
-        if use_reranker and self.reranker:
-            retrieve_k = max(retrieve_k, final_k * 2)
-
-        # Remove conflicting kwargs
-        search_kwargs = {
-            k: v for k, v in kwargs.items() if k not in ["retrieve_k", "per_query_k"]
-        }
-
-        # Retrieve documents
-        documents = self.retriever.retrieve(processed, k=retrieve_k, **search_kwargs)
-
-        # Apply reranking
-        if use_reranker and self.reranker and documents:
-            try:
-                documents = self.reranker.rerank(processed, documents)
-            except Exception as e:
-                logger.error(f"Reranking failed: {e}")
-            # Limit to final k
-            documents = documents[:final_k]
-        else:
-            # Limit to k
-            documents = documents[:final_k]
-
-        logger.info(f"Retrieved {len(documents)} documents")
-        return documents
+        return retrieved[:k]
 
     def retrieve_with_metadata(
-        self, query: str, k: Optional[int] = None, **kwargs
-    ) -> List[Dict[str, Any]]:
-        """
-        Retrieve documents with additional metadata
-
-        Returns:
-            List of dictionaries with document and metadata
-        """
-        documents = self.retrieve(query, k=k, **kwargs)
-
-        results = []
-        for i, doc in enumerate(documents):
-            results.append(
-                {
-                    "rank": i + 1,
-                    "content": doc.page_content,
-                    "metadata": doc.metadata,
-                    "score": doc.metadata.get("score", None),
-                }
-            )
-
-        return results
+        self,
+        query: str,
+        k: int = 3,
+        use_reranker: bool = True,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        documents = self.retrieve(
+            query, k=k, use_reranker=use_reranker, **kwargs
+        )
+        return {
+            "query": query,
+            "documents": documents,
+            "document_count": len(documents),
+            "retriever": "hybrid_bm25_dense_parent_child",
+            "reranker": (
+                getattr(self.reranker, "model_name", None)
+                if use_reranker and self.reranker is not None
+                else None
+            ),
+        }
 
     def retrieve_context(
         self,
         query: str,
-        k: Optional[int] = None,
-        include_sources: bool = True,
-        **kwargs,
-    ) -> Dict[str, Any]:
-        """
-        Retrieve context formatted for RAG
-
-        Returns:
-            Dictionary with context and sources
-        """
-        documents = self.retrieve(query, k=k, **kwargs)
-
-        context_parts = []
-        sources = []
-
-        for i, doc in enumerate(documents):
-            context_parts.append(doc.page_content)
-            if include_sources:
-                sources.append(
-                    {
-                        "content": doc.page_content[:200] + "...",
-                        "source": doc.metadata.get("source", "Unknown"),
-                        "rank": i + 1,
-                    }
-                )
-
-        context = "\n\n".join(context_parts)
-
-        return {
-            "query": query,
-            "context": context,
-            "sources": sources,
-            "document_count": len(documents),
-        }
-
-    async def aretrieve(
-        self, query: str, k: Optional[int] = None, **kwargs
-    ) -> List[Document]:
-        """Async retrieval"""
-        processed = self.query_processor.preprocess_query(query)
-        logger.info(f"Async retrieving for query: {processed}")
-
-        final_k = k or self.k
-        documents = await self.retriever.aretrieve(processed, k=final_k, **kwargs)
-
-        if self.reranker and documents:
-            documents = self.reranker.rerank(processed, documents)
-            documents = documents[:final_k]
-
-        return documents
-
-    def change_strategy(self, strategy: str):
-        """Change retrieval strategy"""
-        self.retriever.change_strategy(strategy)
-        logger.info(f"Changed retrieval strategy to: {strategy}")
+        k: int = 3,
+        use_reranker: bool = True,
+        **kwargs: Any,
+    ) -> str:
+        documents = self.retrieve(
+            query, k=k, use_reranker=use_reranker, **kwargs
+        )
+        return "\n\n---\n\n".join(
+            f"[{index}] Source: {doc.metadata.get('source', 'Unknown')}\n{doc.page_content}"
+            for index, doc in enumerate(documents, 1)
+        )
 
 
 def create_retrieval_pipeline(
     config,
-    retriever_strategy: str = "simple",
+    retriever_strategy: str = "hybrid",
     reranker_type: Optional[str] = None,
-    **kwargs,
+    k: int = 3,
+    **kwargs: Any,
 ) -> RetrievalPipeline:
-    """Create and configure a retrieval pipeline"""
-    # Initialize components
-    embedding_manager = EmbeddingManager(
-        model_name=config.embedding_model, base_url=config.base_url
-    )
+    if retriever_strategy.lower() != "hybrid":
+        logger.info(
+            "Retriever strategy '%s' requested; using hybrid BM25+dense retrieval.",
+            retriever_strategy,
+        )
 
+    embedding_manager = EmbeddingManager(
+        model_name=getattr(config, "embedding_model", "qwen3-embedding:0.6b"),
+        base_url=getattr(config, "base_url", "http://localhost:11434"),
+        dimensions=getattr(config, "embedding_dimension", 768),
+    )
     vector_store = ChromaVectorStore(
         embedding_manager=embedding_manager,
-        persist_directory=config.chroma_persist_dir,
-        collection_name=config.collection_name,
+        persist_directory=getattr(config, "chroma_persist_dir", "./chroma_db"),
+        collection_name=getattr(config, "collection_name", "my_rag_collection"),
     )
 
-    # Create pipeline
-    pipeline = RetrievalPipeline(
+    pool_size = kwargs.pop(
+        "pool_size", getattr(config, "retrieval_pool_size", max(30, k * 10))
+    )
+    retriever = HybridRetriever(
         vector_store=vector_store,
-        embedding_manager=embedding_manager,
-        retriever_strategy=retriever_strategy,
-        reranker_type=reranker_type,
-        **kwargs,
+        dense_weight=kwargs.pop("dense_weight", getattr(config, "dense_weight", 0.65)),
+        sparse_weight=kwargs.pop(
+            "sparse_weight", getattr(config, "sparse_weight", 0.35)
+        ),
+        pool_size=pool_size,
+        parent_max_chars=kwargs.pop(
+            "parent_max_chars", getattr(config, "parent_max_chars", 4000)
+        ),
     )
 
-    return pipeline
+    # The requested pipeline uses cross-encoder reranking by default.
+    reranker_type = reranker_type or "cross_encoder"
+    reranker = create_reranker(
+        reranker_type,
+        model_name=kwargs.pop(
+            "reranker_model", getattr(config, "reranker_model", "qllama/bge-reranker-v2-m3")
+        ),
+    )
+
+    return RetrievalPipeline(
+        retriever=retriever,
+        reranker=reranker,
+        pool_size=pool_size,
+    )
