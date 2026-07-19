@@ -1,220 +1,123 @@
-from .retriever import AdvancedRetriever
-from .reranker import get_reranker
-from .query_processor import QueryProcessor
+from langchain_core.documents import Document
+from typing import List, Dict, Any, Optional
+import logging
+import re
+
+from .retriever import HybridRetriever
+from .reranker import OllamaCrossEncoderReranker
 from ingestion.vectorstore import ChromaVectorStore
 from ingestion.embedding import EmbeddingManager
-from config import config
-from typing import List, Dict, Any, Optional, Tuple
-from langchain_core.documents import Document
-import logging
 
 logger = logging.getLogger(__name__)
 
 
 class RetrievalPipeline:
-    """Complete retrieval pipeline with processing, retrieval, and reranking"""
+    """
+    Full retrieval pipeline:
+        User Query
+            ├── Dense Vector Search (qwen3-embedding:0.6b)
+            └── Sparse BM25 Search
+                    │
+                    ▼
+            Combined Pool (RRF Fusion)
+                    │
+                    ▼
+            Cross-Encoder Reranker (bge-reranker-v2-m3)
+                    │
+                    ▼
+            Dynamic Score Filter (> threshold)
+                    │
+                    ▼
+            Top N Hyper-Exact Chunks → LLM
+    """
 
     def __init__(
         self,
         vector_store: ChromaVectorStore,
         embedding_manager: EmbeddingManager,
-        retriever_strategy: str = "simple",
-        reranker_type: Optional[str] = None,
-        **kwargs,
+        top_k: int = 5,
+        score_threshold: float = 0.70,
+        reranker_model: str = "qllama/bge-reranker-v2-m3:latest",
+        base_url: str = "http://localhost:11434",
+        rrf_k: int = 60,
     ):
-        """
-        Initialize retrieval pipeline
+        self.top_k = top_k
+        self.score_threshold = score_threshold
 
-        Args:
-            vector_store: ChromaVectorStore instance
-            embedding_manager: EmbeddingManager instance
-            retriever_strategy: Retrieval strategy name
-            reranker_type: Reranker type ('cross_encoder', 'llm', 'rrf')
-            **kwargs: Additional parameters
-        """
-        self.vector_store = vector_store
-        self.embedding_manager = embedding_manager
-        self.query_processor = QueryProcessor(embedding_manager)
-
-        # Extract k values from kwargs
-        self.k = kwargs.get("k", 10)
-        self.retrieve_k = kwargs.get("retrieve_k", self.k * 2)
-
-        # Remove k from kwargs before passing to retriever
-        retriever_kwargs = {
-            k: v
-            for k, v in kwargs.items()
-            if k not in ["k", "retrieve_k", "reranker_type"]
-        }
-
-        # Initialize retriever
-        self.retriever = AdvancedRetriever(
-            vector_store,
-            embedding_manager,
-            strategy=retriever_strategy,
-            **retriever_kwargs,
+        self.retriever = HybridRetriever(
+            vector_store=vector_store,
+            embedding_manager=embedding_manager,
+            rrf_k=rrf_k,
         )
 
-        # Initialize reranker if specified
-        self.reranker = None
-        if reranker_type:
-            # Filter kwargs for reranker (remove pipeline-specific params)
-            reranker_kwargs = {
-                k: v
-                for k, v in kwargs.items()
-                if k
-                not in [
-                    "k",
-                    "retrieve_k",
-                    "strategy",
-                    "retriever_strategy",
-                    "reranker_type",
-                ]
-            }
-            self.reranker = get_reranker(reranker_type, **reranker_kwargs)
+        self.reranker = OllamaCrossEncoderReranker(
+            model_name=reranker_model,
+            score_threshold=score_threshold,
+        )
 
-    def retrieve(
-        self, query: str, k: Optional[int] = None, use_reranker: bool = True, **kwargs
-    ) -> List[Document]:
-        """
-        Retrieve relevant documents
+    def retrieve(self, query: str, k: Optional[int] = None) -> List[Document]:
+        final_k = k or self.top_k
 
-        Args:
-            query: Search query
-            k: Number of documents to return
-            use_reranker: Whether to use reranker
-            **kwargs: Additional parameters
+        logger.info(f"Retrieving for query: {query}")
 
-        Returns:
-            List of relevant documents
-        """
-        # Process query
-        processed = self.query_processor.preprocess_query(query)
-        logger.info(f"Retrieving for query: {processed}")
+        candidates = self.retriever.retrieve(query, k=final_k * 3)
+        logger.info(f"Hybrid retrieval returned {len(candidates)} candidates")
 
-        # Determine k values
-        final_k = k or self.k
-        retrieve_k = kwargs.get("retrieve_k", self.retrieve_k)
+        if not candidates:
+            return []
 
-        # Retrieve more documents than needed for reranking
-        if use_reranker and self.reranker:
-            retrieve_k = max(retrieve_k, final_k * 2)
+        reranked = self.reranker.rerank(query, candidates)
+        logger.info(f"Reranker returned {len(reranked)} documents")
 
-        # Remove conflicting kwargs
-        search_kwargs = {
-            k: v for k, v in kwargs.items() if k not in ["retrieve_k", "per_query_k"]
-        }
+        return reranked[:final_k]
 
-        # Retrieve documents
-        documents = self.retriever.retrieve(processed, k=retrieve_k, **search_kwargs)
-
-        # Apply reranking
-        if use_reranker and self.reranker and documents:
-            try:
-                documents = self.reranker.rerank(processed, documents)
-            except Exception as e:
-                logger.error(f"Reranking failed: {e}")
-            # Limit to final k
-            documents = documents[:final_k]
-        else:
-            # Limit to k
-            documents = documents[:final_k]
-
-        logger.info(f"Retrieved {len(documents)} documents")
-        return documents
-
-    def retrieve_with_metadata(
-        self, query: str, k: Optional[int] = None, **kwargs
-    ) -> List[Dict[str, Any]]:
-        """
-        Retrieve documents with additional metadata
-
-        Returns:
-            List of dictionaries with document and metadata
-        """
-        documents = self.retrieve(query, k=k, **kwargs)
+    def retrieve_with_scores(self, query: str, k: Optional[int] = None) -> List[Dict[str, Any]]:
+        final_k = k or self.top_k
+        documents = self.retrieve(query, k=final_k)
 
         results = []
         for i, doc in enumerate(documents):
-            results.append(
-                {
-                    "rank": i + 1,
-                    "content": doc.page_content,
-                    "metadata": doc.metadata,
-                    "score": doc.metadata.get("score", None),
-                }
-            )
-
+            results.append({
+                "rank": i + 1,
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "source": doc.metadata.get("source", "Unknown"),
+            })
         return results
 
-    def retrieve_context(
-        self,
-        query: str,
-        k: Optional[int] = None,
-        include_sources: bool = True,
-        **kwargs,
-    ) -> Dict[str, Any]:
-        """
-        Retrieve context formatted for RAG
-
-        Returns:
-            Dictionary with context and sources
-        """
-        documents = self.retrieve(query, k=k, **kwargs)
+    def retrieve_context(self, query: str, k: Optional[int] = None) -> Dict[str, Any]:
+        documents = self.retrieve(query, k=k)
 
         context_parts = []
         sources = []
-
         for i, doc in enumerate(documents):
             context_parts.append(doc.page_content)
-            if include_sources:
-                sources.append(
-                    {
-                        "content": doc.page_content[:200] + "...",
-                        "source": doc.metadata.get("source", "Unknown"),
-                        "rank": i + 1,
-                    }
-                )
-
-        context = "\n\n".join(context_parts)
+            sources.append({
+                "rank": i + 1,
+                "content": doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
+                "source": doc.metadata.get("source", "Unknown"),
+            })
 
         return {
             "query": query,
-            "context": context,
+            "context": "\n\n".join(context_parts),
             "sources": sources,
             "document_count": len(documents),
         }
 
-    async def aretrieve(
-        self, query: str, k: Optional[int] = None, **kwargs
-    ) -> List[Document]:
-        """Async retrieval"""
-        processed = self.query_processor.preprocess_query(query)
-        logger.info(f"Async retrieving for query: {processed}")
-
-        final_k = k or self.k
-        documents = await self.retriever.aretrieve(processed, k=final_k, **kwargs)
-
-        if self.reranker and documents:
-            documents = self.reranker.rerank(processed, documents)
-            documents = documents[:final_k]
-
-        return documents
-
-    def change_strategy(self, strategy: str):
-        """Change retrieval strategy"""
-        self.retriever.change_strategy(strategy)
-        logger.info(f"Changed retrieval strategy to: {strategy}")
+    def change_threshold(self, threshold: float):
+        self.score_threshold = threshold
+        self.reranker.score_threshold = threshold
+        logger.info(f"Score threshold changed to {threshold}")
 
 
 def create_retrieval_pipeline(
     config,
-    retriever_strategy: str = "simple",
-    reranker_type: Optional[str] = None,
+    top_k: int = 5,
+    score_threshold: float = 0.70,
+    reranker_model: str = "qllama/bge-reranker-v2-m3:latest",
     **kwargs,
 ) -> RetrievalPipeline:
-    """Create and configure a retrieval pipeline"""
-    # Initialize components
     embedding_manager = EmbeddingManager(
         model_name=config.embedding_model, base_url=config.base_url
     )
@@ -225,13 +128,12 @@ def create_retrieval_pipeline(
         collection_name=config.collection_name,
     )
 
-    # Create pipeline
-    pipeline = RetrievalPipeline(
+    return RetrievalPipeline(
         vector_store=vector_store,
         embedding_manager=embedding_manager,
-        retriever_strategy=retriever_strategy,
-        reranker_type=reranker_type,
+        top_k=top_k,
+        score_threshold=score_threshold,
+        reranker_model=reranker_model,
+        base_url=config.base_url,
         **kwargs,
     )
-
-    return pipeline
