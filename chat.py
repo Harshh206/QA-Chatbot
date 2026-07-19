@@ -1,6 +1,6 @@
 import logging
 from rag_chain import RAGChain, create_rag_chain
-#from config import config
+from config import config
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -47,8 +47,8 @@ class ChatSession:
 def run_chat(
     config,
     top_k: int = 5,
-    score_threshold: float = 0.70,
-    reranker_model: str = "qllama/bge-reranker-v2-m3:latest",
+    score_threshold: float = config.threshold,
+    reranker_model: str = config.reranker_model,
     **kwargs,
 ):
     """
