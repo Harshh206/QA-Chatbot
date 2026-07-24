@@ -5,8 +5,9 @@ import re
 
 from .retriever import HybridRetriever
 from .reranker import CrossEncoderReranker
-from ingestion.vectorstore import ChromaVectorStore
-from ingestion.embedding import EmbeddingManager
+from ingestion.vector_store import ChromaVectorStore
+from ingestion.embeddings import EmbeddingManager
+from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,8 @@ class RetrievalPipeline:
         vector_store: ChromaVectorStore,
         embedding_manager: EmbeddingManager,
         top_k: int = 5,
-        score_threshold: float = 0.70,
-        reranker_model: str = "qllama/bge-reranker-v2-m3:latest",
-        base_url: str = "http://localhost:11434",
+        score_threshold: float = config.threshold,
+        reranker_model: str = config.reranker_model,
         rrf_k: int = 60,
     ):
         self.top_k = top_k
@@ -114,8 +114,8 @@ class RetrievalPipeline:
 def create_retrieval_pipeline(
     config,
     top_k: int = 5,
-    score_threshold: float = 0.70,
-    reranker_model: str = "qllama/bge-reranker-v2-m3:latest",
+    score_threshold: float = config.threshold,
+    reranker_model: str = config.reranker_model,
     **kwargs,
 ) -> RetrievalPipeline:
     embedding_manager = EmbeddingManager(
@@ -134,6 +134,5 @@ def create_retrieval_pipeline(
         top_k=top_k,
         score_threshold=score_threshold,
         reranker_model=reranker_model,
-        base_url=config.base_url,
         **kwargs,
     )

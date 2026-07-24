@@ -1,10 +1,10 @@
 from langchain_core.documents import Document
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple
 from math import log
 import logging
 
-from ingestion.vectorstore import ChromaVectorStore
-from ingestion.embedding import EmbeddingManager
+from ingestion.vector_store import ChromaVectorStore
+from ingestion.embeddings import EmbeddingManager
 
 logger = logging.getLogger(__name__)
 

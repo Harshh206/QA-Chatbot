@@ -13,14 +13,14 @@ def test_pipeline():
 
     # 1. Check Ollama connection
     print("\n[1] Checking Ollama connection...")
-    from ingestion.embedding import EmbeddingManager
+    from ingestion.embeddings import EmbeddingManager
 
     test_manager = EmbeddingManager(
-        model_name=config.embedding_model, base_url=config.ollama_base_url
+        model_name=config.embedding_model, base_url=config.base_url
     )
 
     if test_manager.validate_connection():
-        print(f"✅ Connected to Ollama at {config.ollama_base_url}")
+        print(f"✅ Connected to Ollama at {config.base_url}")
         print(f"   Model: {config.embedding_model}")
         dim = test_manager.get_embedding_dimension()
         if dim:

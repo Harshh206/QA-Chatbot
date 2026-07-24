@@ -1,16 +1,17 @@
-langchain 
-langchain-community 
-langchain-ollama 
-langchain-text-splitters 
-PyMuPDF 
-pypdf 
-pytest 
+langchain
+langchain-community
+langchain-ollama
+langchain-text-splitters
+PyMuPDF
+pypdf
+pytest
 sentence-transformers
 chromadb
 langchain-chroma
 markitdown
+streamlit
 
-docx2txt 
-unstructured 
-openpyxl 
+docx2txt
+unstructured
+openpyxl
 jq

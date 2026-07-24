@@ -1,4 +1,4 @@
-from ingestion.embedding import EmbeddingManager
+from ingestion.embeddings import EmbeddingManager
 from config import config
 import time
 
@@ -11,12 +11,12 @@ def test_embeddings():
 
     # Initialize embedding manager
     manager = EmbeddingManager(
-        model_name=config.embedding_model, base_url=config.ollama_base_url,
+        model_name=config.embedding_model, base_url=config.base_url,
         dimensions=config.embedding_dimension
     )
 
     # Test connection
-    print(f"\n1. Testing connection to {config.ollama_base_url}")
+    print(f"\n1. Testing connection to {config.base_url}")
     if manager.validate_connection():
         print("   ✅ Connection successful")
     else:

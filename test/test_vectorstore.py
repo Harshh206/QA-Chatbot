@@ -1,5 +1,5 @@
-from ingestion.embedding import EmbeddingManager
-from ingestion.vectorstore import ChromaVectorStore
+from ingestion.embeddings import EmbeddingManager
+from ingestion.vector_store import ChromaVectorStore
 from langchain_core.documents import Document
 from config import config
 
@@ -11,7 +11,7 @@ def test_vector_store():
 
     # Initialize
     embedding_manager = EmbeddingManager(
-        model_name=config.embedding_model, base_url=config.ollama_base_url
+        model_name=config.embedding_model, base_url=config.base_url
     )
 
     vector_store = ChromaVectorStore(
